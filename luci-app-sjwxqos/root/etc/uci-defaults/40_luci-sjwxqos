@@ -1,0 +1,11 @@
+#!/bin/sh
+
+uci -q batch <<-EOF >/dev/null
+	delete ucitrack.@sjwxqos[-1]
+	add ucitrack sjwxqos
+	set ucitrack.@sjwxqos[-1].init=sjwxqos
+	commit ucitrack
+EOF
+
+rm -f /tmp/luci-indexcache
+exit 0

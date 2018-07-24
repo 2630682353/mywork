@@ -1,0 +1,110 @@
+<%#
+ Copyright 2008-2009 Steven Barth <steven@midlink.org>
+ Copyright 2008-2015 Jo-Philipp Wich <jow@openwrt.org>
+ Licensed to the public under the Apache License 2.0.
+-%>
+
+<%+header%>
+<%
+		local uci = require "luci.model.uci".cursor()
+		local flow_up_list = { }
+		local flow_down_list = { }
+		local flow_ip_list = {}
+		local flow_mac_list = {}
+		function split( str,reps )
+		    local resultStrList = {}
+		    string.gsub(str,'[^'..reps..']+',function ( w )
+		        table.insert(resultStrList,w)
+		    end)
+		    return resultStrList
+		end
+	
+		local flow_up_str = luci.sys.exec("tail -12 /tmp/flow_record | awk '{printf $3\" \"}'")
+		flow_up_list = split(flow_up_str, ' ');
+		local flow_down_str = luci.sys.exec("tail -12 /tmp/flow_record | awk '{printf $4\" \"}'")
+		flow_down_list = split(flow_down_str, ' ');
+		local flow_mac_str = luci.sys.exec("cat /tmp/ip_record | awk '!a[$5]++{printf $5\" \"}'")
+		flow_mac_list = split(flow_mac_str, ' ');
+
+		local flow_ip_str = luci.sys.exec("cat /tmp/dhcp.leases | awk '{printf $3\" \"}'")
+		flow_ip_list = split(flow_ip_str, ' ');
+		local report_interval=uci:get("ap_config","ap_base","report_flow_interval")
+		local otime = os.time();
+		%>
+
+<link rel="stylesheet" type="text/css" href="<%=resource%>/traffic_style.css">
+<link rel="stylesheet" type="text/css" href="<%=resource%>/traffic_main.css">
+<script type="text/javascript" src="<%=resource%>/jquery.min.js"></script>
+<div class="content" style="width:1200px;height:600px;margin-top: 70px;">
+
+</div>
+
+<div style="margin-top:20px">
+	<table>
+		<tr><th>mac</th><% for var = 5,1,-1 do 
+				local starttime = os.date("%m-%d %H:%M", otime - (var*12*report_interval))
+				local endtime = os.date("%m-%d %H:%M", otime - ((var-1)*12*report_interval)) %>
+				
+
+			    <th>上行(KB)<%=starttime%>到<%=endtime%></th>
+				<th>下行(KB)<%=starttime%>到<%=endtime%></th>
+				<% end%>
+		</tr>
+		<% local mac_record_list={}
+		for i, v in ipairs(flow_mac_list) do local record_str=luci.sys.exec("cat /tmp/ip_record | grep "..v)
+			mac_record_list=split(record_str, '\n')
+		%>
+		<tr>
+			<td><%=v%></td>
+			<% for var = 5,1,-1 do 
+				local tdtotal_down = 0
+				local tdtotal_up = 0
+				local starttime = otime - (var*12*report_interval)
+				local endtime = otime - ((var-1)*12*report_interval)
+			 for i, v in ipairs(mac_record_list) do
+				local mac_detail_list=split(v, ' ')
+				if starttime < tonumber(mac_detail_list[9]) and tonumber(mac_detail_list[9]) <= endtime then
+					tdtotal_down = tdtotal_down + tonumber(mac_detail_list[2])
+					tdtotal_up = tdtotal_up + tonumber(mac_detail_list[1])
+				end
+			end
+
+			%>
+			<td><%=tdtotal_up%></td><td><%=tdtotal_down%></td>
+			<% end%>
+		</tr>
+		<% end%>
+	</table>
+</div>
+<script type="text/javascript" src="<%=resource%>/sjwx_traffic.js"></script>
+<script type="text/javascript">
+	$('.content').dataAnalysis({
+		data : {
+			type : "line-number",
+			horizontal: [<%for var=0,12,1 do %>
+			     <%=var*report_interval/60%>,
+			<% end  %>], //横坐标
+			vertical  : [0,10,20,30,40,50,60],  //纵坐标
+			horiUnit : "分钟", //横坐标单位
+			vertUnit : "MB",   //纵坐标单位
+			title	: "设备流量", //图表标题
+			project : [
+				{
+					name : "上行流量",
+					style: "#66ccff",
+
+					points:[<% for i, v in ipairs(flow_up_list) do %>
+					[<%=i*report_interval/60%>,<%=v/1024%>],<%end%>]
+				},
+				{
+					name : "下行流量",
+					style: "#F5601F",
+					points:[<% for i, v in ipairs(flow_down_list) do %>
+					[<%=i*report_interval/60%>,<%=v/1024%>],<%end%>]
+				}
+			]
+		}
+	});
+</script>
+
+<%+footer%>

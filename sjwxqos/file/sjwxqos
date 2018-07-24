@@ -1,0 +1,16 @@
+
+config client_ip
+	option upload '200'
+	option download '400'
+	option ceil_up '400'
+	option ipaddr '192.168.20.189'
+	option ceil_down '1300'
+
+config client_ip
+	option ipaddr '192.168.20.140-192.168.20.150'
+	option download '400'
+	option upload '300'
+
+config qos_base 'qos_base'
+	option enable '1'
+

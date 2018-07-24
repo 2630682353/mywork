@@ -1,0 +1,121 @@
+#!/bin/sh /etc/rc.common
+START=99
+USE_PROCD=1
+
+qos_init(){
+	config_load network
+	config_get wan_ifname wan ifname
+	config_get lan_ifname lan ifname
+	iptables -t mangle -N QOSDOWN
+	iptables -t mangle -N QOSUP
+	iptables -t mangle -I FORWARD -i $wan_ifname -j QOSDOWN
+	iptables -t mangle -I FORWARD -o $wan_ifname -j QOSUP
+
+	ip link set dev ifb0 up
+	tc qdisc add dev $lan_ifname root handle 1: prio
+	tc qdisc add dev $wan_ifname root handle 1: prio
+	tc qdisc add dev ifb0 root handle 1: htb default 999
+	tc filter add dev $lan_ifname parent 1: protocol ip prio 1 u32 match u32 0 0 flowid 1:1 action mirred egress redirect dev ifb0
+	tc filter add dev $wan_ifname parent 1: protocol ip prio 1 u32 match u32 0 0 flowid 1:1 action mirred egress redirect dev ifb0
+	tc class add dev ifb0 parent 1: classid 1:20 htb rate 99999kbps ceil 99999kbps prio 2
+}
+
+mystop(){
+	config_load network
+	config_get lan_ifname lan ifname
+	config_get wan_ifname wan ifname
+	iptables -t mangle -F QOSDOWN 
+	iptables -t mangle -F QOSUP
+	iptables -t mangle -D FORWARD -i $wan_ifname -j QOSDOWN
+	iptables -t mangle -D FORWARD -o $wan_ifname -j QOSUP
+	iptables -t mangle -X QOSDOWN
+	iptables -t mangle -X QOSUP
+	tc qdisc del dev $lan_ifname root
+	tc qdisc del dev $wan_ifname root
+	tc qdisc del dev ifb0 root
+}
+
+tcclass_num=1
+setup_eachip_qos() 
+{
+	local qos_ip
+	local down_speed
+	local up_speed
+	local down_ceil
+	local up_ceil
+	config_get qos_ip "$1" ipaddr
+	config_get down_speed "$1" download
+	config_get down_ceil "$1" ceil_down
+	config_get up_speed "$1" upload
+	config_get up_ceil "$1" ceil_up
+
+	local str_split="-"
+	local range_result=$(echo $qos_ip | grep $str_split)
+	if [ ! $down_ceil ]; then
+		down_ceil=99999
+	fi
+	if [ ! $up_ceil ]; then
+		up_ceil=99999
+	fi
+
+	if [ $down_speed ]; then
+		if [ $range_result ]; then
+			iptables -t mangle -A QOSDOWN -m iprange --dst-range ${qos_ip} -j MARK --set-mark ${tcclass_num}
+			iptables -t mangle -A QOSDOWN -m iprange --dst-range ${qos_ip} -j RETURN
+		else
+			iptables -t mangle -A QOSDOWN -d ${qos_ip} -j MARK --set-mark ${tcclass_num} 
+			iptables -t mangle -A QOSDOWN -d ${qos_ip} -j RETURN
+		fi
+		tc class add dev ifb0 parent 1:20 classid 1:2${tcclass_num} htb rate ${down_speed}kbps ceil ${down_ceil}kbps prio 3
+		tc filter add dev ifb0 parent 1: protocol ip prio 1 handle ${tcclass_num} fw classid 1:2${tcclass_num}
+		tcclass_num=$(($tcclass_num + 1))
+	fi
+
+	if [ $up_speed ]; then
+		if [ $range_result ]; then
+			iptables -t mangle -A QOSUP -m iprange --src-range ${qos_ip} -j MARK --set-mark ${tcclass_num}
+			iptables -t mangle -A QOSUP -m iprange --src-range ${qos_ip} -j RETURN
+		else
+			iptables -t mangle -A QOSUP -s ${qos_ip} -j MARK --set-mark ${tcclass_num}
+			iptables -t mangle -A QOSUP -s ${qos_ip} -j RETURN
+		fi
+		tc class add dev ifb0 parent 1:20 classid 1:2${tcclass_num} htb rate ${up_speed}kbps ceil ${up_ceil}kbps prio 3
+		tc filter add dev ifb0 parent 1: protocol ip prio 1 handle ${tcclass_num} fw classid 1:2${tcclass_num}
+		tcclass_num=$(($tcclass_num + 1))
+	fi
+}
+
+mystart()
+{
+	config_load sjwxqos
+	config_get enable qos_base enable
+	if [ $enable == '1' ]; then
+		qos_init
+		config_load sjwxqos
+		config_foreach setup_eachip_qos client_ip
+	fi
+}
+
+start_service() 
+{
+	mystop
+    mystart
+}
+stop_service() 
+{
+    mystop
+}
+
+
+service_triggers()
+{
+	procd_add_reload_trigger "sjwxqos"
+
+}
+
+reload_service()
+{
+	mystop
+	mystart
+}
+

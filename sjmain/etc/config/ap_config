@@ -1,0 +1,12 @@
+config ap_base ap_base
+	option sjmain_loglevel 4
+	option http_timeout 7
+	option report_flow_interval  180
+	option enable_ip_statistics 1
+	option flow_report_url    http://192.168.189.228/ichengdu/public/admin/flow/index
+
+
+config gateway_sys  gateway_sys
+	option hard_version '1.0'
+	option soft_version '1.0'
+	option vendor 'zbt'
