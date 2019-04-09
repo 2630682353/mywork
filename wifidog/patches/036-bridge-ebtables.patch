@@ -1,0 +1,733 @@
+Index: b/src/conf.c
+===================================================================
+--- a/src/conf.c	2018-02-28 09:44:25.487494413 +0800
++++ b/src/conf.c	2018-02-28 09:54:40.854317421 +0800
+@@ -48,6 +48,8 @@
+ 
+ #include "util.h"
+ 
++#include <netdb.h>
++
+ /** @internal
+  * Holds the current configuration of the gateway */
+ static s_config config;
+@@ -492,6 +494,19 @@ parse_firewall_ruleset(const char *rules
+     debug(LOG_DEBUG, "Firewall Rule Set %s added.", ruleset);
+ }
+ 
++static int isNetmask(const char *str)
++{
++    int i = 0;
++
++    for (i = 0; i < 64 && *str != 0; i++) {
++        if (*str++ == '/') {
++            return 1;
++        }
++    }
++
++    return 0;
++}
++
+ /** @internal
+ Helper for parse_firewall_ruleset.  Parses a single rule in a ruleset
+ */
+@@ -567,6 +582,17 @@ _parse_firewall_rule(const char *ruleset
+         if (!finished) {
+             /* Get arg now and check validity in next section */
+             mask = leftover;
++            /* 域名转为ip */
++            if (mask != NULL && !isNetmask(mask)) {
++                printf("convert %s to ip.\n", mask);
++                struct hostent *remoteHost = gethostbyname(mask);
++
++                if (remoteHost == NULL) {
++                    printf("get host[%s] ip failed.\n", mask);
++                } else {
++                    mask = inet_ntoa(*(struct in_addr *)*remoteHost->h_addr_list);
++                }
++            }
+         }
+         if (strncmp(other_kw, "to-ipset", 8) == 0 && !finished) {
+             mask_is_ipset = 1;
+Index: b/src/firewall.c
+===================================================================
+--- a/src/firewall.c	2018-02-28 09:44:25.438490723 +0800
++++ b/src/firewall.c	2018-02-28 09:54:53.412824648 +0800
+@@ -226,6 +226,10 @@ fw_clear_authservers(void)
+ {
+     debug(LOG_INFO, "Clearing the authservers list");
+     iptables_fw_clear_authservers();
++    
++    if (isBridge) {
++        ebtables_fw_clear_authservers();
++    }
+ }
+ 
+ /** Add the necessary firewall rules to whitelist the authservers
+@@ -235,6 +239,10 @@ fw_set_authservers(void)
+ {
+     debug(LOG_INFO, "Setting the authservers list");
+     iptables_fw_set_authservers();
++
++    if (isBridge) {
++        ebtables_fw_set_authservers();
++    }
+ }
+ 
+ /** Remove the firewall rules
+@@ -259,8 +267,13 @@ fw_sync_with_authserver(void)
+     t_client *p1, *p2, *worklist, *tmp;
+     s_config *config = config_get_config();
+ 
+-    if (-1 == iptables_fw_counters_update()) {
+-        debug(LOG_ERR, "Could not get counters from firewall!");
++    if (!isBridge && -1 == iptables_fw_counters_update()) {
++        debug(LOG_ERR, "Could not get counters from iptables!");
++        return;
++    }
++
++    if (isBridge && -1 == ebtables_fw_counters_update()) {
++        debug(LOG_ERR, "Could not get counters from ebtables!");
+         return;
+     }
+ 
+Index: b/src/fw_iptables.c
+===================================================================
+--- a/src/fw_iptables.c	2018-02-28 09:44:25.504495692 +0800
++++ b/src/fw_iptables.c	2018-02-28 09:55:24.810205986 +0800
+@@ -114,6 +114,31 @@ iptables_do_command(const char *format,
+     return rc;
+ }
+ 
++static int
++ebtables_do_command(const char *format, ...)
++{
++    va_list vlist;
++    char *fmt_cmd;
++    char *cmd;
++    int rc;
++
++    va_start(vlist, format);
++    safe_vasprintf(&fmt_cmd, format, vlist);
++    va_end(vlist);
++
++    safe_asprintf(&cmd, "ebtables %s", fmt_cmd);
++    free(fmt_cmd);
++
++    iptables_insert_gateway_id(&cmd);
++
++    rc = execute(cmd);
++
++    free(cmd);
++
++    return rc;
++}
++
++
+ /**
+  * @internal
+  * Compiles a struct definition of a firewall rule into a valid iptables
+@@ -180,6 +205,68 @@ iptables_compile(const char *table, cons
+     return (safe_strdup(command));
+ }
+ 
++static char *
++ebtables_compile(const char *table, const char *chain, const t_firewall_rule * rule)
++{
++    char command[MAX_BUF], *mode;
++
++    memset(command, 0, MAX_BUF);
++    mode = NULL;
++
++    switch (rule->target) {
++    case TARGET_DROP:
++        if (strncmp(table, "nat", 3) == 0) {
++            free(mode);
++            return NULL;
++        }
++        mode = safe_strdup("DROP");
++        break;
++    case TARGET_REJECT:
++        if (strncmp(table, "nat", 3) == 0) {
++            free(mode);
++            return NULL;
++        }
++        mode = safe_strdup("DROP");
++        break;
++    case TARGET_ACCEPT:
++        mode = safe_strdup("ACCEPT");
++        break;
++    case TARGET_LOG:
++        mode = safe_strdup("LOG");
++        break;
++    case TARGET_ULOG:
++        mode = safe_strdup("ULOG");
++        break;
++    }
++
++    snprintf(command, sizeof(command), "-t %s -A %s ", table, chain);
++    if (rule->mask != NULL) {
++        if (rule->mask_is_ipset) {
++            snprintf((command + strlen(command)), (sizeof(command) -
++                                                   strlen(command)), "-m set --match-set %s dst ", rule->mask);
++        } else {
++            if (memcmp(rule->mask, "0.0.0.0/0", sizeof("0.0.0.0/0")) == 0) {
++                snprintf((command + strlen(command)), (sizeof(command) - strlen(command)), "-p ipv4 ");
++            } else {
++                snprintf((command + strlen(command)), (sizeof(command) - strlen(command)), "-p ipv4 --ip-dst %s ", rule->mask);
++            }
++        }
++    }
++    if (rule->protocol != NULL) {
++        snprintf((command + strlen(command)), (sizeof(command) - strlen(command)), "--ip-proto %s ", rule->protocol);
++    }
++    if (rule->port != NULL) {
++        snprintf((command + strlen(command)), (sizeof(command) - strlen(command)), "--ip-dport %s ", rule->port);
++    }
++    snprintf((command + strlen(command)), (sizeof(command) - strlen(command)), "-j %s", mode);
++
++    free(mode);
++
++    /* XXX The buffer command, an automatic variable, will get cleaned
++     * off of the stack when we return, so we strdup() it. */
++    return (safe_strdup(command));
++}
++
+ /**
+  * @internal
+  * Load all the rules in a rule set.
+@@ -207,6 +294,26 @@ iptables_load_ruleset(const char *table,
+     debug(LOG_DEBUG, "Ruleset %s loaded into table %s, chain %s", ruleset, table, chain);
+ }
+ 
++static void
++ebtables_load_ruleset(const char *table, const char *ruleset, const char *chain)
++{
++    t_firewall_rule *rule;
++    char *cmd;
++
++    debug(LOG_DEBUG, "Load ruleset %s into table %s, chain %s", ruleset, table, chain);
++
++    for (rule = get_ruleset(ruleset); rule != NULL; rule = rule->next) {
++        cmd = ebtables_compile(table, chain, rule);
++        if (cmd != NULL) {
++            debug(LOG_DEBUG, "Loading rule \"%s\" into table %s, chain %s", cmd, table, chain);
++            ebtables_do_command(cmd);
++        }
++        free(cmd);
++    }
++
++    debug(LOG_DEBUG, "Ruleset %s loaded into table %s, chain %s", ruleset, table, chain);
++}
++
+ void
+ iptables_fw_clear_authservers(void)
+ {
+@@ -215,6 +322,13 @@ iptables_fw_clear_authservers(void)
+ }
+ 
+ void
++ebtables_fw_clear_authservers(void)
++{
++    ebtables_do_command("-t filter -F " CHAIN_AUTHSERVERS);
++    ebtables_do_command("-t nat -F " CHAIN_AUTHSERVERS);
++}
++
++void
+ iptables_fw_set_authservers(void)
+ {
+     const s_config *config;
+@@ -231,6 +345,185 @@ iptables_fw_set_authservers(void)
+ 
+ }
+ 
++void
++ebtables_fw_set_authservers(void)
++{
++    const s_config *config;
++    t_auth_serv *auth_server;
++
++    config = config_get_config();
++
++    for (auth_server = config->auth_servers; auth_server != NULL; auth_server = auth_server->next) {
++        if (auth_server->last_ip && strcmp(auth_server->last_ip, "0.0.0.0") != 0) {
++            ebtables_do_command("-t filter -A " CHAIN_AUTHSERVERS " -p ipv4 --ip-dst %s -j ACCEPT", auth_server->last_ip);
++            ebtables_do_command("-t nat -A "    CHAIN_AUTHSERVERS " -p ipv4 --ip-dst %s -j ACCEPT", auth_server->last_ip);
++        }
++    }
++}
++
++int
++ebtables_fw_init(void)
++{
++    const s_config *config;
++    char *ext_interface = NULL;
++    int gw_port = 0;
++    t_trusted_mac *p;
++    int proxy_port;
++    fw_quiet = 0;
++    int got_authdown_ruleset = NULL == get_ruleset(FWRULESET_AUTH_IS_DOWN) ? 0 : 1;
++
++    LOCK_CONFIG();
++    config = config_get_config();
++    gw_port = config->gw_port;
++    if (config->external_interface) {
++        ext_interface = safe_strdup(config->external_interface);
++    } else {
++        ext_interface = get_ext_iface();
++    }
++
++    if (ext_interface == NULL) {
++        UNLOCK_CONFIG();
++        debug(LOG_ERR, "FATAL: no external interface");
++        return 0;
++    }
++    /*
++     *
++     * Everything in the broute table
++     *
++     */
++
++    /* Create new chains */
++    ebtables_do_command("-t broute -N " CHAIN_TRUSTED " -P RETURN ");
++    ebtables_do_command("-t broute -N " CHAIN_OUTGOING " -P RETURN ");
++    if (got_authdown_ruleset)
++        ebtables_do_command("-t broute -N " CHAIN_AUTH_IS_DOWN " -P RETURN ");
++
++    /* Assign links and rules to these new chains */
++    ebtables_do_command("-t broute -I BROUTING 1 -j " CHAIN_OUTGOING);
++    ebtables_do_command("-t broute -I BROUTING 1 -j " CHAIN_TRUSTED);     //this rule will be inserted before the prior one
++    if (got_authdown_ruleset)
++        ebtables_do_command("-t broute -I BROUTING 1 -j " CHAIN_AUTH_IS_DOWN);    //this rule must be last in the chain
++
++    for (p = config->trustedmaclist; p != NULL; p = p->next)
++        ebtables_do_command("-t broute -A " CHAIN_TRUSTED " -s %s -j mark --mark-set %d", p->mac,
++                            FW_MARK_KNOWN);
++
++    /* 桥模式的网关不是设备本身 ，网关需要放行才能上桥*/
++    ebtables_do_command("-t broute -A " CHAIN_TRUSTED " -s %s -j mark --mark-set %d", ext_gw_mac,
++                            FW_MARK_KNOWN);
++
++    /* 桥模式下，局域网内部允许访问网关 */
++    ebtables_do_command("-t broute -A " CHAIN_TRUSTED " -p ipv4 --ip-dst %s -j mark --set-mark %d", 
++                        ext_gw_ip, FW_MARK_KNOWN);
++
++    /*
++     *
++     * Everything in the NAT table
++     *
++     */
++
++    /* Create new chains */
++    ebtables_do_command("-t nat -N " CHAIN_OUTGOING " -P RETURN ");
++    ebtables_do_command("-t nat -N " CHAIN_TO_ROUTER " -P RETURN ");
++    ebtables_do_command("-t nat -N " CHAIN_TO_INTERNET " -P RETURN ");
++    ebtables_do_command("-t nat -N " CHAIN_UNKNOWN " -P RETURN ");
++    ebtables_do_command("-t nat -N " CHAIN_AUTHSERVERS " -P RETURN ");
++    ebtables_do_command("-t nat -N " CHAIN_GLOBAL " -P RETURN ");
++    ebtables_do_command("-t nat -N " CHAIN_INCOMING " -P RETURN ");
++    if (got_authdown_ruleset)
++        ebtables_do_command("-t nat -N " CHAIN_AUTH_IS_DOWN " -P RETURN ");
++
++    /* Assign links and rules to these new chains */
++    ebtables_do_command("-t nat -A POSTROUTING -j " CHAIN_INCOMING);
++    
++    ebtables_do_command("-t nat -A PREROUTING -j " CHAIN_OUTGOING);
++
++    ebtables_do_command("-t nat -A " CHAIN_OUTGOING " -p ipv4 --ip-dst %s -j " CHAIN_TO_ROUTER, config->gw_address);
++    ebtables_do_command("-t nat -A " CHAIN_OUTGOING " -p ipv4 --ip-dst %s -j " CHAIN_TO_ROUTER, ext_gw_ip);
++    ebtables_do_command("-t nat -A " CHAIN_TO_ROUTER " -j ACCEPT");
++
++    ebtables_do_command("-t nat -A " CHAIN_OUTGOING " -j " CHAIN_TO_INTERNET);
++    
++    ebtables_do_command("-t nat -A " CHAIN_TO_INTERNET " --mark 0x%u -j ACCEPT", FW_MARK_KNOWN);
++    ebtables_do_command("-t nat -A " CHAIN_TO_INTERNET " --mark 0x%u -j ACCEPT", FW_MARK_PROBATION);
++    ebtables_do_command("-t nat -A " CHAIN_TO_INTERNET " -j " CHAIN_UNKNOWN);
++
++    ebtables_do_command("-t nat -A " CHAIN_UNKNOWN " -j " CHAIN_AUTHSERVERS);
++    ebtables_do_command("-t nat -A " CHAIN_UNKNOWN " -j " CHAIN_GLOBAL);
++    if (got_authdown_ruleset) {
++        ebtables_do_command("-t nat -A " CHAIN_UNKNOWN " -j " CHAIN_AUTH_IS_DOWN);
++        ebtables_do_command("-t nat -A " CHAIN_AUTH_IS_DOWN " --mark 0x%u -j ACCEPT", FW_MARK_AUTH_IS_DOWN);
++    }
++    ebtables_do_command("-t nat -A " CHAIN_UNKNOWN " -p ipv4 --ip-proto tcp --ip-dport 80 -j redirect --redirect-target ACCEPT");
++    ebtables_do_command("-t nat -A " CHAIN_UNKNOWN " -p ipv4 --ip-proto tcp --ip-dport 443 -j redirect --redirect-target ACCEPT");
++    /* 将1.1.1.1:2060端口重定向到本地2060交由wifidog处理 */
++    ebtables_do_command("-t nat -A " CHAIN_UNKNOWN " -p ipv4 --ip-dst 1.1.1.1 --ip-proto tcp --ip-dport 2060 -j redirect --redirect-target ACCEPT");
++
++    /*
++     *
++     * Everything in the FILTER table
++     *
++     */
++
++    /* Create new chains */
++    ebtables_do_command("-t filter -N " CHAIN_TO_INTERNET " -P RETURN ");
++    ebtables_do_command("-t filter -N " CHAIN_AUTHSERVERS " -P RETURN ");
++    ebtables_do_command("-t filter -N " CHAIN_LOCKED " -P RETURN ");
++    ebtables_do_command("-t filter -N " CHAIN_GLOBAL " -P RETURN ");
++    ebtables_do_command("-t filter -N " CHAIN_VALIDATE " -P RETURN ");
++    ebtables_do_command("-t filter -N " CHAIN_KNOWN " -P RETURN ");
++    ebtables_do_command("-t filter -N " CHAIN_UNKNOWN " -P RETURN ");
++    if (got_authdown_ruleset)
++        ebtables_do_command("-t filter -N " CHAIN_AUTH_IS_DOWN " -P RETURN ");
++
++    /* Assign links and rules to these new chains */
++
++    /* Insert at the beginning */
++    ebtables_do_command("-t filter -I FORWARD -j " CHAIN_TO_INTERNET);
++
++    /* ARP直接放行 */
++    ebtables_do_command("-t filter -I FORWARD -p ARP -j ACCEPT");
++
++    /* XXX: Why this? it means that connections setup after authentication
++       stay open even after the connection is done... 
++       iptables_do_command("-t filter -A " CHAIN_TO_INTERNET " -m state --state RELATED,ESTABLISHED -j ACCEPT"); */
++
++    //Won't this rule NEVER match anyway?!?!? benoitg, 2007-06-23
++    //iptables_do_command("-t filter -A " CHAIN_TO_INTERNET " -i %s -m state --state NEW -j DROP", ext_interface);
++
++    ebtables_do_command("-t filter -A " CHAIN_TO_INTERNET " -j " CHAIN_AUTHSERVERS);
++    ebtables_fw_set_authservers();
++
++    ebtables_do_command("-t filter -A " CHAIN_TO_INTERNET " --mark 0x%u -j " CHAIN_LOCKED, FW_MARK_LOCKED);
++    ebtables_load_ruleset("filter", FWRULESET_LOCKED_USERS, CHAIN_LOCKED);
++
++    ebtables_do_command("-t filter -A " CHAIN_TO_INTERNET " -j " CHAIN_GLOBAL);
++    ebtables_load_ruleset("filter", FWRULESET_GLOBAL, CHAIN_GLOBAL);
++    ebtables_load_ruleset("nat", FWRULESET_GLOBAL, CHAIN_GLOBAL);
++
++    ebtables_do_command("-t filter -A " CHAIN_TO_INTERNET " --mark 0x%u -j " CHAIN_VALIDATE, FW_MARK_PROBATION);
++    ebtables_load_ruleset("filter", FWRULESET_VALIDATING_USERS, CHAIN_VALIDATE);
++
++    ebtables_do_command("-t filter -A " CHAIN_TO_INTERNET " --mark 0x%u -j " CHAIN_KNOWN, FW_MARK_KNOWN);
++    ebtables_load_ruleset("filter", FWRULESET_KNOWN_USERS, CHAIN_KNOWN);
++
++    if (got_authdown_ruleset) {
++        ebtables_do_command("-t filter -A " CHAIN_TO_INTERNET " --mark 0x%u -j " CHAIN_AUTH_IS_DOWN,
++                            FW_MARK_AUTH_IS_DOWN);
++        ebtables_load_ruleset("filter", FWRULESET_AUTH_IS_DOWN, CHAIN_AUTH_IS_DOWN);
++    }
++
++    ebtables_do_command("-t filter -A " CHAIN_TO_INTERNET " -j " CHAIN_UNKNOWN);
++    ebtables_load_ruleset("filter", FWRULESET_UNKNOWN_USERS, CHAIN_UNKNOWN);
++    ebtables_do_command("-t filter -A " CHAIN_UNKNOWN " -j DROP");
++
++    UNLOCK_CONFIG();
++
++    free(ext_interface);
++    return 1;
++}
++
++
+ /** Initialize the firewall rules
+ */
+ int
+@@ -282,32 +575,6 @@ iptables_fw_init(void)
+         iptables_do_command("-t mangle -A " CHAIN_TRUSTED " -m mac --mac-source %s -j MARK --set-mark %d", p->mac,
+                             FW_MARK_KNOWN);
+ 
+-    /* 桥模式，网关放行*/
+-    if (memcmp(config->gw_interface, ext_interface, strlen(config->gw_interface) + 1) == 0
+-        && ext_gw_mac != NULL)
+-    {
+-        /* 桥模式的网关不是设备本身 ，网关需要放行才能上桥*/
+-        iptables_do_command("-t mangle -A " CHAIN_TRUSTED " -m mac --mac-source %s -j MARK --set-mark %d", 
+-                            ext_gw_mac, FW_MARK_KNOWN);
+-
+-        /* 桥模式下，局域网内部允许访问网关 */
+-        iptables_do_command("-t mangle -A " CHAIN_TRUSTED " -d %s -j MARK --set-mark %d", 
+-                            ext_gw_ip, FW_MARK_KNOWN);
+-
+-        iptables_do_command("-t mangle -A " CHAIN_TRUSTED " -s %s -j MARK --set-mark %d", 
+-                            ext_gw_ip, FW_MARK_KNOWN);
+-
+-        /* 使能网桥防火墙 */
+-        /* 二层redirect的时候目的MAC会变成网桥MAC */
+-        /* 所以依赖MAC的功能(例如dhcp)在这里特殊处理 */    
+-        execute("ebtables -t broute -I BROUTING -p ipv4 --ip-proto udp --ip-dport 67 -j ACCEPT");
+-        execute("ebtables -t broute -I BROUTING -p ipv4 --ip-proto udp --ip-dport 68 -j ACCEPT");
+-        
+-        execute("ebtables -t broute -A BROUTING -p ipv4 --ip-proto tcp -j redirect --redirect-target ACCEPT");
+-        execute("ebtables -t broute -A BROUTING -p ipv4 --ip-proto udp -j redirect --redirect-target ACCEPT");
+-        execute("ebtables -t broute -A BROUTING -p ipv4 --ip-proto icmp -j redirect --redirect-target ACCEPT");
+-    }
+-
+     /*
+      *
+      * Everything in the NAT table
+@@ -421,6 +688,12 @@ iptables_fw_init(void)
+     UNLOCK_CONFIG();
+ 
+     free(ext_interface);
++
++    /* 桥模式 */
++    if (isBridge) {
++        ebtables_fw_init();
++    }
++
+     return 1;
+ }
+ 
+@@ -436,6 +709,15 @@ iptables_fw_destroy(void)
+ 
+     debug(LOG_DEBUG, "Destroying our iptables entries");
+ 
++    /* 禁能网桥防火墙 */
++    execute("ebtables -t broute -F");
++    execute("ebtables -t nat -F");
++    execute("ebtables -t filter -F");
++    
++    execute("ebtables -t broute -X");
++    execute("ebtables -t nat -X");
++    execute("ebtables -t filter -X");
++
+     /*
+      *
+      * Everything in the MANGLE table
+@@ -508,9 +790,6 @@ iptables_fw_destroy(void)
+     if (got_authdown_ruleset)
+         iptables_do_command("-t filter -X " CHAIN_AUTH_IS_DOWN);
+ 
+-    /* 禁能网桥防火墙 */    
+-    execute("ebtables -t broute -F");
+-
+     return 1;
+ }
+ 
+@@ -724,12 +1003,25 @@ iptables_fw_access(fw_access_t type, con
+         iptables_do_command("-t mangle -A " CHAIN_OUTGOING " -s %s -m mac --mac-source %s -j MARK --set-mark %d", ip,
+                             mac, tag);
+         rc = iptables_do_command("-t mangle -A " CHAIN_INCOMING " -d %s -j ACCEPT", ip);
++
++        /* 桥模式 */
++        if (isBridge) {
++            ebtables_do_command("-t broute -A " CHAIN_OUTGOING " -p ipv4 --ip-src %s -s %s -j mark --set-mark %d", ip, mac, tag);
++            ebtables_do_command("-t nat -A " CHAIN_INCOMING " -p ipv4 --ip-dst %s -j ACCEPT", ip);
++        }
++        
+         break;
+     case FW_ACCESS_DENY:
+         /* XXX Add looping to really clear? */
+         iptables_do_command("-t mangle -D " CHAIN_OUTGOING " -s %s -m mac --mac-source %s -j MARK --set-mark %d", ip,
+                             mac, tag);
+         rc = iptables_do_command("-t mangle -D " CHAIN_INCOMING " -d %s -j ACCEPT", ip);
++
++        /* 桥模式 */
++        if (isBridge) {
++            ebtables_do_command("-t broute -D " CHAIN_OUTGOING " -p ipv4 --ip-src %s -s %s -j mark --set-mark %d", ip, mac, tag);
++            ebtables_do_command("-t nat -D " CHAIN_INCOMING " -p ipv4 --ip-dst %s -j ACCEPT", ip);
++        }
+         break;
+     default:
+         rc = -1;
+@@ -770,7 +1062,12 @@ iptables_fw_auth_unreachable(int tag)
+ {
+     int got_authdown_ruleset = NULL == get_ruleset(FWRULESET_AUTH_IS_DOWN) ? 0 : 1;
+     if (got_authdown_ruleset)
++    {
++        if (isBridge) {
++            ebtables_do_command("-t broute -A " CHAIN_AUTH_IS_DOWN " -j mark --set-mark 0x%u", tag);
++        }
+         return iptables_do_command("-t mangle -A " CHAIN_AUTH_IS_DOWN " -j MARK --set-mark 0x%u", tag);
++    }
+     else
+         return 1;
+ }
+@@ -781,7 +1078,12 @@ iptables_fw_auth_reachable(void)
+ {
+     int got_authdown_ruleset = NULL == get_ruleset(FWRULESET_AUTH_IS_DOWN) ? 0 : 1;
+     if (got_authdown_ruleset)
++    {
++        if (isBridge) {
++            ebtables_do_command("-t broute -F " CHAIN_AUTH_IS_DOWN);
++        }
+         return iptables_do_command("-t mangle -F " CHAIN_AUTH_IS_DOWN);
++    }
+     else
+         return 1;
+ }
+@@ -893,3 +1195,112 @@ iptables_fw_counters_update(void)
+ 
+     return 1;
+ }
++
++int
++ebtables_fw_counters_update(void)
++{
++    FILE *output;
++    char *script, ip[16], rc;
++    unsigned long long int counter;
++    t_client *p1;
++    struct in_addr tempaddr;
++
++    /* Look for outgoing traffic */
++    safe_asprintf(&script, "ebtables -t broute -L " CHAIN_OUTGOING " --Lmac2 --Lc > /tmp/wifidogTmp_out.txt");
++    iptables_insert_gateway_id(&script);
++    system(script);
++    output = fopen("/tmp/wifidogTmp_out.txt", "r");
++    free(script);
++    if (!output) {
++        debug(LOG_ERR, "fopen(): %s", strerror(errno));
++        return -1;
++    }
++
++    /* skip the first 3 lines */
++    while (('\n' != fgetc(output)) && !feof(output)) ;
++    while (('\n' != fgetc(output)) && !feof(output)) ;
++    while (('\n' != fgetc(output)) && !feof(output)) ;
++    while (output && !(feof(output))) {
++        rc = fscanf(output, "%*s %*s %*s %*s %*s %15[0-9.] %*s %*s %*s %*s %*s %*s %*s %*s %*s %*s %*s %*s %llu", ip, &counter);
++        if (2 == rc && EOF != rc) {
++            /* Sanity */
++            if (!inet_aton(ip, &tempaddr)) {
++                debug(LOG_WARNING, "I was supposed to read an IP address but instead got [%s] - ignoring it", ip);
++                continue;
++            }
++            debug(LOG_DEBUG, "Read outgoing traffic for %s: Bytes=%llu", ip, counter);
++            LOCK_CLIENT_LIST();
++            if ((p1 = client_list_find_by_ip(ip))) {
++                if ((p1->counters.outgoing - p1->counters.outgoing_history) < counter) {
++                    p1->counters.outgoing_delta = p1->counters.outgoing_history + counter - p1->counters.outgoing;
++                    p1->counters.outgoing = p1->counters.outgoing_history + counter;
++                    p1->counters.last_updated = time(NULL);
++                    debug(LOG_DEBUG, "%s - Outgoing traffic %llu bytes, updated counter.outgoing to %llu bytes.  Updated last_updated to %d", ip,
++                          counter, p1->counters.outgoing, p1->counters.last_updated);
++                }
++                else
++                {
++                    p1->counters.outgoing_delta = 0;
++                }
++            } else {
++                debug(LOG_ERR,
++                      "ebtables_fw_counters_update(): Could not find %s in client list, this should not happen unless if the gateway crashed",
++                      ip);
++                debug(LOG_ERR, "Preventively deleting firewall rules for %s in table %s", ip, CHAIN_OUTGOING);
++                //iptables_fw_destroy_mention("mangle", CHAIN_OUTGOING, ip);
++                debug(LOG_ERR, "Preventively deleting firewall rules for %s in table %s", ip, CHAIN_INCOMING);
++                //iptables_fw_destroy_mention("mangle", CHAIN_INCOMING, ip);
++            }
++            UNLOCK_CLIENT_LIST();
++        }
++    }
++    fclose(output);
++
++    /* Look for incoming traffic */
++    safe_asprintf(&script, "ebtables -t nat -L " CHAIN_INCOMING " --Lmac2 --Lc > /tmp/wifidogTmp_in.txt");
++    iptables_insert_gateway_id(&script);
++    system(script);
++    output = fopen("/tmp/wifidogTmp_in.txt", "r");
++    free(script);
++    if (!output) {
++        debug(LOG_ERR, "fopen(): %s", strerror(errno));
++        return -1;
++    }
++
++    /* skip the first 3 lines */
++    while (('\n' != fgetc(output)) && !feof(output)) ;
++    while (('\n' != fgetc(output)) && !feof(output)) ;
++    while (('\n' != fgetc(output)) && !feof(output)) ;
++    while (output && !(feof(output))) {
++        rc = fscanf(output, "%*s %*s %*s %15[0-9.] %*s %*s %*s %*s %*s %*s %*s %*s %*s %llu", ip, &counter);
++        if (2 == rc && EOF != rc) {
++            /* Sanity */
++            if (!inet_aton(ip, &tempaddr)) {
++                debug(LOG_WARNING, "I was supposed to read an IP address but instead got [%s] - ignoring it", ip);
++                continue;
++            }
++            debug(LOG_DEBUG, "Read incoming traffic for %s: Bytes=%llu", ip, counter);
++            LOCK_CLIENT_LIST();
++            if ((p1 = client_list_find_by_ip(ip))) {
++                if ((p1->counters.incoming - p1->counters.incoming_history) < counter) {
++                    p1->counters.incoming_delta = p1->counters.incoming_history + counter - p1->counters.incoming;
++                    p1->counters.incoming = p1->counters.incoming_history + counter;
++                    debug(LOG_DEBUG, "%s - Incoming traffic %llu bytes, Updated counter.incoming to %llu bytes", ip, counter, p1->counters.incoming);
++                }
++            } else {
++                debug(LOG_ERR,
++                      "ebtables_fw_counters_update(): Could not find %s in client list, this should not happen unless if the gateway crashed",
++                      ip);
++                debug(LOG_ERR, "Preventively deleting firewall rules for %s in table %s", ip, CHAIN_OUTGOING);
++                //iptables_fw_destroy_mention("mangle", CHAIN_OUTGOING, ip);
++                debug(LOG_ERR, "Preventively deleting firewall rules for %s in table %s", ip, CHAIN_INCOMING);
++                //iptables_fw_destroy_mention("mangle", CHAIN_INCOMING, ip);
++            }
++            UNLOCK_CLIENT_LIST();
++        }
++    }
++    fclose(output);
++    
++    return 1;
++}
++
+Index: b/src/util.c
+===================================================================
+--- a/src/util.c	2018-02-28 09:44:25.505495768 +0800
++++ b/src/util.c	2018-02-28 09:55:36.125992260 +0800
+@@ -308,6 +308,7 @@ get_iface_mac(const char *ifname)
+ 
+ char *ext_gw_ip = NULL;
+ char *ext_gw_mac = NULL;
++int isBridge = 0;
+ 
+ char *
+ get_ext_iface(void)
+@@ -321,6 +322,11 @@ get_ext_iface(void)
+     struct timespec timeout;
+     device = (char *)safe_malloc(16);   /* XXX Why 16? */
+     gw = (char *)safe_malloc(16);
++    if (ext_gw_ip != NULL)
++    {
++        free(ext_gw_ip);
++        ext_gw_ip = NULL;
++    }
+     ext_gw_ip = (char *)safe_malloc(16);
+     const s_config *config = config_get_config();
+     
+@@ -344,19 +350,29 @@ get_ext_iface(void)
+             /* XXX scanf(3) is unsafe, risks overrun */           
+             if ((fscanf(input, "%15s %15s %*s %*s %*s %*s %*s %15s\n", gw, ext_gw_ip, device) == 3)
+                 && strcmp(gw, "0.0.0.0") == 0) {
++
++                if (ext_gw_mac != NULL)
++                {
++                    free(ext_gw_mac);
++                    ext_gw_mac = NULL;
++                }
+                 
+                 ext_gw_mac = arp_get(ext_gw_ip);
+ 
+                 debug(LOG_INFO, "get_ext_iface(): Detected %s [%s][%s] as the default interface after trying %d", 
+                                 device, ext_gw_ip, ext_gw_mac ? : "NULL", i);
+ 
+-                if (memcmp(config->gw_interface, device, strlen(config->gw_interface) + 1)  /* 路由模式 */
+-                    || ext_gw_mac != NULL)                       /* 桥模式，必须获取到网关ip,mac */
+-                {
+-                    free(gw);
+-                    fclose(input); 
+-                    return device;
++                if (memcmp(config->gw_interface, device, strlen(config->gw_interface) + 1)) {
++                    /* 路由模式 */
++                    isBridge = 0;
++                } else if (ext_gw_mac != NULL) {
++                    /* 桥模式，必须获取到网关ip,mac */
++                    isBridge = 1;
+                 }
++
++                free(gw);
++                fclose(input); 
++                return device;
+             }
+         }
+         fclose(input);
+Index: b/src/util.h
+===================================================================
+--- a/src/util.h	2018-02-28 09:44:25.506495843 +0800
++++ b/src/util.h	2018-02-28 09:55:39.563602686 +0800
+@@ -63,5 +63,6 @@ void save_pid_file(const char *);
+ 
+ extern char *ext_gw_ip;
+ extern char *ext_gw_mac;
++extern int isBridge;
+ 
+ #endif                          /* _UTIL_H_ */

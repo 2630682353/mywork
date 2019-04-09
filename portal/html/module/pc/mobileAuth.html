@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html>
+<head lang="en">
+    <meta charset="UTF-8">
+    <link rel="shortcut icon" href="../../../portal/images/jflogo.png" type="image/x-icon">
+    <link rel="stylesheet" type="text/css" href="../../../portal/lib/bootstrap/bootstrap.css"/>
+    <link rel="stylesheet" type="text/css" href="../../../portal/res/css/pc/pub.css">
+    <link rel="stylesheet" type="text/css" href="../../../portal/res/css/pc/validate.css">
+    <link rel="stylesheet" type="text/css" href="../../../portal/res/css/pc/login.css">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+    <meta name="renderer" content="webkit">
+    <title>上网认证</title>
+    <style type="text/css">
+        .huashu-logo{
+            margin-top: 10px;
+        }
+        .huashu-logo img{
+            width: 190px;
+            height: 45px;
+        }
+        .container{
+            width: 1200px;
+            height: 490px;
+        }
+        .advertisement{
+            height: 490px;
+            /*width: 750px;*/
+            width: 714px;
+        }
+        .advertisement .carousel .carousel-inner .item img{
+            /*width: 100%;*/
+            width: 654px;
+            height: 430px;
+            /*margin: 0 auto;*/
+        }
+        .successMsg{
+            font-size: 18px;
+            color: #36a9e5;
+            text-align: center;
+            height: 55px;
+            line-height: 80px;
+            display: none;
+        }
+        .footerNow{
+            width: 100%;
+            text-align: center;
+            color: #969696;
+            height: 50px;
+        }
+        .validate-frame-inner .validate-specific {
+            font-size: 1.0em;
+        }
+    </style>
+</head>
+<body>
+<div class="content" style="width: 1225px;margin: 0 auto;padding-bottom: 0">
+    <div class="huashu-logo">
+        <img class="advert-img" src="../../../portal/res/img/pc/torlogo.png">
+    </div>
+    <div class="container borderShadow" style="background-size: 1200px 466px;background-position: bottom;margin-top: 5px;margin-bottom: 15px">
+        <input type="hidden" id="authId" name="authId">
+        <input type="hidden" id="isOld" name="isOld">
+        <!--轮播图-->
+        <div class="advertisement" id="adv2">
+            <div id="carousel-example-generic" style="height: 100%" class="carousel slide" data-ride="carousel" data-interval="3000">
+                <div class="carousel-inner" role="listbox"></div>
+            </div>
+        </div>
+        <div id="loginStatus"  class="validate-frame" style="margin-top: 30px;height: 430px;margin-left: 20px">
+            <div class="validate-frame-inner" style="height: 430px">
+                <div class="validate-specific static padding20" id="newUser" style="display: none">
+                    <div class="" style="padding-bottom: 10px;margin-bottom: 15px;color: #dd7e6b;text-align: center;border-bottom:2px solid #ad8665">欢迎您使用免费无线WIFI服务</div>
+
+                    <div class="successMsg" style="margin-top: 80px" id="newSuccessMsg">认证成功</div>
+                    <div class="validate-content hideCtr">
+                        <img src="../../../portal/res/img/pc/iconfont-shouji.jpg">
+                        <div class="validateInput phoneNum user">
+                            <div class="inputPlaceHolder">请输入手机号</div>
+                            <input class="phoneNum" type="tel" name="phone" id="phone" maxlength="11"/>
+                              <p><input type="hidden" id="mac" value="jfwx:mac"></p>
+                                <p><input type="hidden" id="vlan" value="jfwx:vlan"></p>
+                                <p><input type="hidden" id="user_ip" value="jfwx:user_ip"></p>
+                                <p><input type="hidden" id="tel" value="jfwx:tel"></p>
+                                <p><input type="hidden" id="pwd" value="jfwx:pwd"></p>
+                        </div>
+                        <button type="button" class="code" id="getAuth" onclick="getAuthCode();">获取服务码</button>
+                    </div>
+                    <div class="validate-data hideCtr">
+                        <img src="../../../portal/res/img/pc/iconfont-suo.png">
+                        <div class="validateInput dynamicPwd user">
+                            <div class="inputPlaceHolder">请输入服务码</div>
+                            <input class="dynamicPwd" type="tel" placeholder="" name="authCode" id="authCode" maxlength="10" >
+                        </div>
+                    </div>
+                    <span style="color:red;display:inline-block;height:20px;font-size:12px;" class="tip"></span>
+                    <div class="validate-btn hideCtr">
+                        <button type="button" class="btn" id="lock" onclick="auth(event);">确&nbsp;定</button>
+                    </div>
+                    <div class="validate-protocol hideCtr" style="font-size: 14px">
+                        <input name="checkbox" name="auth-agree-checkbox" id="auth-agree-checkbox" type="checkbox" style="display: inline-block;margin-top: 7px;-webkit-appearance: checkbox;"/>
+                        我已阅读并同意遵守<a style="color: #6e6e6e" href="/static/portal/huashu-agreement.html">《无线上网使用条款》</a>
+                    </div>
+                </div>
+                <div class="validate-specific static" id="oldUser" style="display: none">
+                    <div class="validate-welcome">
+                        欢迎再次使用免费WiFi
+                    </div>
+                    <div class="successMsg" id="successMsg" style="margin-top: 80px">认证成功</div>
+                    <div class="validate-btn padding-lr20 " id="linkBtnHid">
+                        <button type="button" class="btn connect" style="margin-top: 70px;" onclick="auth(event);">确认连接</button>
+                    </div>
+                    <span style="color:red;display:inline-block;height:20px;font-size:12px;" class="tip"></span>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="footerNow" style="height: 25px;line-height: 25px;">
+        <div class="" style="font-size: 14px;font-weight: 600">©商机无限前端  版权所有</div>
+    </div>
+</div>
+</body>
+<script type="text/javascript" src="../../../portal/lib/jquery/jquery1.js"></script>
+<script type="text/javascript" src="../../../portal/res/plugin/json2.js"></script>
+<script type="text/javascript" src="../../../portal/lib/bootstrap/bootstrap.js"></script>
+<!--<script type="text/javascript" src="../../res/plugin/jquery.cookie.min.js"></script>-->
+<!--<script type="text/javascript" src="../../res/js/tools/scriptTools.js"></script>-->
+<script type="text/javascript" src="../../../portal/res/js/portal/portal.js"></script>
+<script type="text/javascript" src="../../../portal/res/js/pc/authData.js"></script>
+<script type="text/javascript" src="../../../portal/res/js/pc/login.js"></script>
+<script>
+    $(function(){
+        initEvent();
+        initData();
+        initAuth(jfwx:isOld);
+    });
+</script>
+</html>

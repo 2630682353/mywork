@@ -1,0 +1,73 @@
+Index: b/src/fw_iptables.c
+===================================================================
+--- a/src/fw_iptables.c	2017-11-10 09:15:55.150565880 +0800
++++ b/src/fw_iptables.c	2017-11-10 09:16:11.836282733 +0800
+@@ -100,7 +100,7 @@ iptables_do_command(const char *format,
+     safe_vasprintf(&fmt_cmd, format, vlist);
+     va_end(vlist);
+ 
+-    safe_asprintf(&cmd, "iptables %s", fmt_cmd);
++    safe_asprintf(&cmd, "iptables -w %s", fmt_cmd);
+     free(fmt_cmd);
+ 
+     iptables_insert_gateway_id(&cmd);
+Index: b/src/gateway.c
+===================================================================
+--- a/src/gateway.c	2017-11-10 09:29:06.562991128 +0800
++++ b/src/gateway.c	2017-11-10 09:30:16.386968448 +0800
+@@ -301,7 +301,8 @@ init_signals(void)
+     struct sigaction sa;
+ 
+     debug(LOG_DEBUG, "Initializing signal handlers");
+-
++#if 0
++    /* 使用system执行命令，屏蔽掉SIGCHLD，避免信号被主程序捕捉，system报错 */
+     sa.sa_handler = sigchld_handler;
+     sigemptyset(&sa.sa_mask);
+     sa.sa_flags = SA_RESTART;
+@@ -309,7 +310,7 @@ init_signals(void)
+         debug(LOG_ERR, "sigaction(): %s", strerror(errno));
+         exit(1);
+     }
+-
++#endif
+     /* Trap SIGPIPE */
+     /* This is done so that when libhttpd does a socket operation on
+      * a disconnected socket (i.e.: Broken Pipes) we catch the signal
+Index: b/src/util.c
+===================================================================
+--- a/src/util.c	2017-11-10 09:29:14.923268830 +0800
++++ b/src/util.c	2017-11-10 09:29:47.881276249 +0800
+@@ -119,6 +119,24 @@ int thread_sleep(int ms)
+ int
+ execute(const char *cmd_line, int quiet)
+ {
++#if 1
++    /* 使用system执行命令*/
++    /* 实测fork+execvp会出现概率性卡死，而system不会出错。 */
++
++    int ret = system(cmd_line);
++
++    if (ret == -1 && errno != 0)
++    {
++        debug(LOG_ERR, "execute failed , exit... %s", strerror(errno));
++        /* system失败，直接结束整个进程 */
++        exit(1);
++    }
++    else
++    {
++        return ret;
++    }
++
++#else
+     int pid, status, rc;
+ 
+     const char *new_argv[4];
+@@ -181,6 +199,7 @@ execute(const char *cmd_line, int quiet)
+         debug(LOG_DEBUG, "Child may have been killed.");
+         return 1;
+     }
++#endif
+ }
+ 
+ struct in_addr *

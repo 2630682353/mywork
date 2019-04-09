@@ -1,0 +1,53 @@
+config acct acct_config
+	option	acct_policy		3
+	option	acct_status		1
+	option	total_seconds		86400 #24h
+	option  inactive_sec    1800
+	option	total_flows		107374182400 #100GB
+
+config total total_config
+	option  advertise_enable  1
+	option  advertise_size    4
+	option  black_white_enable  1
+
+config mac_list  black_list
+	list  black  22:22:22:22:22:22
+	list  black  22:22:22:22:22:21
+
+config mac_list  white_list
+	list  white  22:22:22:22:22:11
+	list  white  22:22:22:22:22:10
+	list  white  00:0c:29:ac:ab:74
+
+config adv  adv_config
+	option  adv_policy        3
+	option  adv_option        1
+	option  adv_type          0
+	option  time_interval     600 #10mins
+	option  flow_interval     1073741824 #1GB
+
+config advertise
+	option id   1
+	option type  0
+	option url   ads/ads1.html
+
+config advertise
+	option id   2
+	option type  0
+	option url   ads/ads2.html
+
+config advertise
+	option id   3
+	option type  0
+	option url   ads/ads3.html
+
+config advertise
+	option id   4
+	option type  0
+	option url   ads/ads4.html
+
+config vlan_html_map vlan_html_map
+	option 	vlan1 	default
+	option 	vlan3 	default
+	option 	vlan4 	default
+	option  vlan5	default

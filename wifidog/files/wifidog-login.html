@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="UTF-8">
+		<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0" name="viewport" />
+		<link rel="stylesheet" href="css/index.css" />
+		<title></title>
+			<style type="text/css">
+			html{
+					font-size:-moz-calc(100vw / 750 * 100);font-size:-webkit-calc(100vw / 750 * 100);font-size:calc(100vw / 750 * 100);
+			}
+			</style>
+			 <script type="text/javascript">
+				var mobile_type = 'other';
+				var wit= $(window).width();
+				if(mobile_type == 'android'){
+				if(wit==384){
+				  wit=408;}
+				else{
+				  wit=360;
+				    }
+				}
+				var newwi=wit/750*100;
+				document.documentElement.style.fontSize=newwi+"px";
+           </script>
+	</head>
+	<style>
+		body{background:url($node_host/img/background.jpg) no-repeat; background-size: cover; text-align: center;}
+		.head img{width: 4.84rem; height: 0.84rem; margin-top: 1.8rem; margin-bottom: 5.0rem;}
+		.button{width: 2.0rem; height: 2.0rem;  margin: 0 auto;}
+		.button img{width: 2.0rem; height: 2.0rem;  margin-left: -0.32rem; }
+	</style>
+	<body>
+		<div class="head">
+			<img src="$node_host/img/float.png">
+		</div>
+		
+		<div class="button">
+                <a href='$message'><img src="$node_host/img/button.png"></a>
+                </div>
+	</body>
+</html>

@@ -1,0 +1,69 @@
+Index: b/src/gateway.c
+===================================================================
+--- a/src/gateway.c	2017-11-08 23:58:47.397294366 +0800
++++ b/src/gateway.c	2017-11-08 23:59:48.649794262 +0800
+@@ -623,12 +623,24 @@ main_loop(void)
+             *params = webserver;
+             *(params + 1) = r;
+ 
+-            result = pthread_create(&tid, NULL, (void *)thread_httpd, (void *)params);
+-            if (result != 0) {
+-                debug(LOG_ERR, "FATAL: Failed to create a new thread (httpd) - exiting");
+-                termination_handler(0);
++            pthread_mutex_lock(&httpdconn_mutex);
++            if (httpdconn < config->httpdmaxconn)
++            {
++                httpdconn++;
++                pthread_mutex_unlock(&httpdconn_mutex);
++                
++                result = pthread_create(&tid, NULL, (void *)thread_httpd, (void *)params);
++                if (result != 0) {
++                    debug(LOG_ERR, "FATAL: Failed to create a new thread (httpd) - exiting");
++                    termination_handler(0);
++                }
++                pthread_detach(tid);
++            }
++            else
++            {
++                pthread_mutex_unlock(&httpdconn_mutex);
++                httpdEndRequest(r);
+             }
+-            pthread_detach(tid);
+         } else {
+             /* webserver->lastError should be 2 */
+             /* XXX We failed an ACL.... No handling because
+Index: b/src/httpd_thread.c
+===================================================================
+--- a/src/httpd_thread.c	2017-11-09 00:00:41.140676680 +0800
++++ b/src/httpd_thread.c	2017-11-09 00:01:08.967040221 +0800
+@@ -43,6 +43,9 @@
+ #include "debug.h"
+ #include "httpd_thread.h"
+ 
++int httpdconn = 0;
++pthread_mutex_t httpdconn_mutex = PTHREAD_MUTEX_INITIALIZER;
++
+ /** Main request handling thread.
+ @param args Two item array of void-cast pointers to the httpd and request struct
+ */
+@@ -72,4 +75,8 @@ thread_httpd(void *args)
+ 	}
+ 	debug(LOG_DEBUG, "Closing connection with %s", r->clientAddr);
+ 	httpdEndRequest(r);
++    
++    pthread_mutex_lock(&httpdconn_mutex);
++    httpdconn--;
++    pthread_mutex_unlock(&httpdconn_mutex);
+ }
+Index: b/src/httpd_thread.h
+===================================================================
+--- a/src/httpd_thread.h	2017-11-09 00:01:16.492417109 +0800
++++ b/src/httpd_thread.h	2017-11-09 00:01:31.257302220 +0800
+@@ -30,4 +30,7 @@
+ /** @brief Handle a web request */
+ void thread_httpd(void *args);
+ 
++extern int httpdconn;
++extern pthread_mutex_t httpdconn_mutex;
++
+ #endif

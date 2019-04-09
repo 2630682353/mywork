@@ -1,0 +1,17 @@
+Index: b/src/conf.c
+===================================================================
+--- a/src/conf.c	2017-12-14 17:35:34.799022652 +0800
++++ b/src/conf.c	2017-12-14 17:37:25.432458172 +0800
+@@ -895,10 +895,10 @@ void parse_trusted_mac_list(const char *
+         return;
+     }
+ 
+-    char *possiblemac = NULL;
++    volatile char * volatile possiblemac = NULL;
+     t_trusted_mac *p = NULL;
+     char mac[18];
+-    char mac_buff[10 * 1024];
++    volatile char mac_buff[10 * 1024];
+ 
+     memset(mac_buff, 0, sizeof(mac_buff));
+     

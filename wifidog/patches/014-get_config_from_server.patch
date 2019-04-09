@@ -1,0 +1,275 @@
+Index: b/src/conf.c
+===================================================================
+--- a/src/conf.c	2017-10-16 19:18:52.000000000 +0800
++++ b/src/conf.c	2017-11-30 14:40:20.405130200 +0800
+@@ -158,7 +158,7 @@ static int parse_boolean_value(char *);
+ static void parse_auth_server(FILE *, const char *, int *);
+ static int _parse_firewall_rule(const char *, char *);
+ static void parse_firewall_ruleset(const char *, FILE *, const char *, int *);
+-static void parse_trusted_mac_list(const char *);
++void parse_trusted_mac_list(const char *);
+ static void parse_popular_servers(const char *);
+ static void validate_popular_servers(void);
+ static void add_popular_server(const char *);
+@@ -732,9 +732,11 @@ config_read(const char *filename)
+                 case oFirewallRuleSet:
+                     parse_firewall_ruleset(p1, fd, filename, &linenum);
+                     break;
++#if 0
+                 case oTrustedMACList:
+                     parse_trusted_mac_list(p1);
+                     break;
++#endif
+                 case oPopularServers:
+                     parse_popular_servers(rawarg);
+                     break;
+@@ -861,18 +863,20 @@ parse_boolean_value(char *line)
+ int
+ check_mac_format(char *possiblemac)
+ {
+-    char hex2[3];
+-    return
+-        sscanf(possiblemac,
++    unsigned char mac[6];
++    int ret = sscanf(possiblemac,
+                "%2[A-Fa-f0-9]:%2[A-Fa-f0-9]:%2[A-Fa-f0-9]:%2[A-Fa-f0-9]:%2[A-Fa-f0-9]:%2[A-Fa-f0-9]",
+-               hex2, hex2, hex2, hex2, hex2, hex2) == 6;
++               mac + 0, mac + 1, mac + 2, mac + 3, mac + 4, mac + 5);
++    
++    debug(LOG_DEBUG, "check_mac_format ret = %d", ret);
++
++    return (ret == 6);
+ }
+ 
+ /** @internal
+  * Parse the trusted mac list.
+  */
+-static void
+-parse_trusted_mac_list(const char *ptr)
++void parse_trusted_mac_list(const char *ptr)
+ {
+     char *ptrcopy = NULL;
+     char *possiblemac = NULL;
+Index: b/src/gateway.c
+===================================================================
+--- a/src/gateway.c	2017-11-30 14:37:35.572992475 +0800
++++ b/src/gateway.c	2017-11-30 14:41:02.884190929 +0800
+@@ -43,6 +43,8 @@
+ /* for unix socket communication*/
+ #include <sys/socket.h>
+ #include <sys/un.h>
++#include <netdb.h>
++#include <arpa/inet.h>
+ 
+ #include "common.h"
+ #include "httpd.h"
+@@ -346,33 +348,120 @@ init_signals(void)
+     }
+ }
+ 
+-char *get_unitcode(void)
++char wlist[8 * 1024];
++
++/* 通过mac地址，去服务器查询配置信息 */
++int get_config_from_server(const char *mac)
+ {
+-    char unitcode[64];
++    int ret = -1;
++    char buffer[512];
++    int needSend = 0;
++    char url[128];
+ 
+-    FILE *out = popen("uci get unit.@unit[0].unitcode", "r");
+-    if (out == NULL)
++    if (mac == NULL)
+     {
+-        return NULL;
++        return -2;
+     }
++    
++#if 1
++    const char *host = config_get_config()->auth_servers[0].authserv_hostname;
++    int port = config_get_config()->auth_servers[0].authserv_http_port;
++    snprintf(url, sizeof(url) - 1, "/api/mac_list?mac=%s", mac);
++#else
++    const char *host = "192.168.18.210";
++    int port = 80;
++    snprintf(url, sizeof(url) - 1, "/wlist.html");
++#endif
+ 
+-    if (fgets(unitcode, sizeof(unitcode), out) != unitcode)
++	snprintf(buffer, sizeof(buffer) - 1,
++    	"GET %s HTTP/1.1\r\n"
++    	"Host: %s:%d\r\n"
++    	"Content-Type: text/html\r\n\r\n",
++    	url, host, port);
++
++    needSend = strlen(buffer);
++
++    int sock_cli = socket(AF_INET,SOCK_STREAM, 0);
++
++    struct hostent *remoteHost = gethostbyname(host);
++    struct sockaddr_in servaddr;
++    memset(&servaddr, 0, sizeof(servaddr));
++    servaddr.sin_family = AF_INET;
++    servaddr.sin_port = htons(port);
++    servaddr.sin_addr.s_addr = *(u_long *) remoteHost->h_addr_list[0];
++
++    if (connect(sock_cli, (struct sockaddr *)&servaddr, sizeof(servaddr)) < 0)
+     {
+-        pclose(out);
+-        return NULL;
++        printf(" CenterHost:%s:%d connect error\n",host,port);	 
++        return -1;
+     }
+ 
+-    if (pclose(out) == 0)
++    int pos=0;
++    int len=0;
++    /* 发送 */
++    while (pos < needSend)
+     {
+-        unitcode[sizeof(unitcode) - 1] = 0;
+-        if (unitcode[strlen(unitcode) - 1] == '\n')
++        if((needSend - pos) > 2048)
++        {
++            len = send(sock_cli, buffer + pos, 2048, 0);
++        }
++        else
++        {
++            len = send(sock_cli, buffer + pos, needSend - pos, 0);
++        }
++        
++        if(len <= 0)
+         {
+-            unitcode[strlen(unitcode) - 1] = 0;
++            printf("Send ERRPR!\n");
++            break;
+         }
+-        return safe_strdup(unitcode);
++        pos += len;
+     }
+ 
+-    return NULL;
++    /* 接收 */
++    pos = 0;
++    len = 0;
++    do{
++        len = recv(sock_cli, buffer + pos, sizeof(buffer), 0);
++        pos += len;
++    }while((len > 0) && (pos < sizeof(buffer) - 1));
++    buffer[pos] = 0;
++    
++    close(sock_cli);
++
++    printf("buffer pos[%d]\n[%s]\n", pos, buffer);
++
++    if (pos > 100)
++    {
++        const char *p = buffer;
++        while (memcmp(p, "result=", strlen("result=")) 
++            && (p < buffer + pos - strlen("result=")))
++        {
++            p++;
++        }
++    
++        ret = sscanf(p,
++            "result=success "
++            "wlist=%s ", 
++            wlist);
++        printf(
++            "got:result=success\n"
++            "wlist=%s\n", 
++            wlist);
++    }
++    else
++    {
++        printf("invalid len[%d]\n[%s]\n", pos, buffer);
++    }
++
++    if (ret != 1)
++    {
++        return -1;
++    }
++    else
++    {
++        return 0;
++    }
+ }
+ 
+ extern pthread_mutex_t client_id_mutex;
+@@ -523,15 +612,7 @@ main_loop(void)
+     }
+ 
+     /* If we don't have the Gateway ID, construct it from the internal MAC address.
+-     * "Can't fail" so exit() if the impossible happens. */
+-    if (!config->gw_id) {
+-        debug(LOG_DEBUG, "Finding unitcode");
+-        if ((config->gw_id = get_unitcode()) == NULL) {
+-            debug(LOG_ERR, "unitcode is not setted");
+-        }
+-        debug(LOG_DEBUG, "gw_id = %s", config->gw_id);
+-    }
+-    
++     * "Can't fail" so exit() if the impossible happens. */   
+     if (!config->gw_id) {
+         debug(LOG_DEBUG, "Finding MAC address of %s", config->gw_interface);
+         if ((config->gw_id = get_iface_mac(config->gw_interface)) == NULL) {
+@@ -541,6 +622,17 @@ main_loop(void)
+         debug(LOG_DEBUG, "%s = %s", config->gw_interface, config->gw_id);
+     }
+ 
++    do{
++        result = get_config_from_server(config->gw_id);
++        if (result != 0)
++        {
++            debug(LOG_ERR, "!!!get_config_from_server failed[%d].\n", result);
++            sleep(5);
++        }
++    }while(result != 0);
++
++    parse_trusted_mac_list(wlist);
++
+     /* Initializes the web server */
+     debug(LOG_NOTICE, "Creating web server on %s:%d", config->gw_address, config->gw_port);
+     if ((webserver = httpdCreate(config->gw_address, config->gw_port)) == NULL) {
+Index: b/wifidog.conf
+===================================================================
+--- a/wifidog.conf	2017-11-30 14:37:35.478985750 +0800
++++ b/wifidog.conf	2017-11-30 14:46:37.233293547 +0800
+@@ -79,10 +79,11 @@ GatewayInterface br-lan
+ #
+ 
+ AuthServer {
+-    Hostname cas.cnsjwx.cn
+-    HTTPPort 18098
++    Hostname 120.55.43.37
++    HTTPPort 8080
+     SSLAvailable no
+-    Path /yibin/
++    Path /wifidog/
++    MsgScriptPathFragment gw_message?
+ }
+ 
+ #AuthServer {
+@@ -331,9 +332,9 @@ FirewallRuleSet known-users {
+ # Does nothing when not configured.
+ #
+ # Used when auth server is down
+-#FirewallRuleSet auth-is-down {
+-#  FirewallRule allow to 0.0.0.0/0
+-#}
++FirewallRuleSet auth-is-down {
++  FirewallRule allow to 0.0.0.0/0
++}
+ 
+ # Rule Set: unknown-users
+ #
+@@ -352,6 +353,7 @@ FirewallRuleSet unknown-users {
+     FirewallRule allow tcp port 53
+     FirewallRule allow udp port 67
+     FirewallRule allow tcp port 67
++    FirewallRule allow to config.cdsjwx.cn
+ }
+ 
+ # Rule Set: locked-users

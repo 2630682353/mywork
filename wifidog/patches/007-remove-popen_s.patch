@@ -1,0 +1,146 @@
+Index: b/src/fw_iptables.c
+===================================================================
+--- a/src/fw_iptables.c	2017-11-07 19:12:33.556185704 +0800
++++ b/src/fw_iptables.c	2017-11-07 19:24:53.000000000 +0800
+@@ -491,43 +491,6 @@ iptables_fw_destroy(void)
+     return 1;
+ }
+ 
+-static int pipeIsOpened = 0;
+-static int pipoOpenRet = -1;
+-
+-FILE * popen_s ( const char * command , const char * type )
+-{
+-    if (pipeIsOpened != 0)
+-    {
+-        debug(LOG_ERR, "pipe is allready open.");
+-        return NULL;
+-    }
+-
+-    pipeIsOpened = 1;
+-
+-    char buff[256];
+-
+-    snprintf(buff, sizeof(buff) - 1, "%s > /tmp/wifidogTmpFile", command);
+-    
+-    buff[sizeof(buff) - 1] = 0;
+-    
+-    pipoOpenRet = execute(buff, 1);
+-
+-    return fopen("/tmp/wifidogTmpFile", "r");
+-}
+-
+-int pclose_s ( FILE *p )
+-{
+-    if (pipeIsOpened != 1)
+-    {
+-        debug(LOG_ERR, "pipe is allready open.");
+-        return NULL;
+-    }
+-
+-    fclose(p);
+-    pipeIsOpened = 0;
+-    return pipoOpenRet;
+-}
+-
+ /*
+  * Helper for iptables_fw_destroy
+  * @param table The table to search
+@@ -552,7 +515,7 @@ iptables_fw_destroy_mention(const char *
+     safe_asprintf(&command, "iptables -t %s -L %s -n --line-numbers -v", table, chain);
+     iptables_insert_gateway_id(&command);
+ 
+-    if ((p = popen_s(command, "r"))) {
++    if ((p = popen(command, "r"))) {
+         /* Skip first 2 lines */
+         while (!feof(p) && fgetc(p) != '\n') ;
+         while (!feof(p) && fgetc(p) != '\n') ;
+@@ -574,7 +537,7 @@ iptables_fw_destroy_mention(const char *
+                 }
+             }
+         }
+-        pclose_s(p);
++        pclose(p);
+     }
+ 
+     free(command);
+@@ -675,10 +638,10 @@ iptables_fw_counters_update(void)
+     /* Look for outgoing traffic */
+     safe_asprintf(&script, "%s %s", "iptables", "-v -n -x -t mangle -L " CHAIN_OUTGOING);
+     iptables_insert_gateway_id(&script);
+-    output = popen_s(script, "r");
++    output = popen(script, "r");
+     free(script);
+     if (!output) {
+-        debug(LOG_ERR, "popen_s(): %s", strerror(errno));
++        debug(LOG_ERR, "popen(): %s", strerror(errno));
+         return -1;
+     }
+ 
+@@ -716,15 +679,15 @@ iptables_fw_counters_update(void)
+             UNLOCK_CLIENT_LIST();
+         }
+     }
+-    pclose_s(output);
++    pclose(output);
+ 
+     /* Look for incoming traffic */
+     safe_asprintf(&script, "%s %s", "iptables", "-v -n -x -t mangle -L " CHAIN_INCOMING);
+     iptables_insert_gateway_id(&script);
+-    output = popen_s(script, "r");
++    output = popen(script, "r");
+     free(script);
+     if (!output) {
+-        debug(LOG_ERR, "popen_s(): %s", strerror(errno));
++        debug(LOG_ERR, "popen(): %s", strerror(errno));
+         return -1;
+     }
+ 
+@@ -759,7 +722,7 @@ iptables_fw_counters_update(void)
+             UNLOCK_CLIENT_LIST();
+         }
+     }
+-    pclose_s(output);
++    pclose(output);
+ 
+     return 1;
+ }
+Index: b/src/fw_iptables.h
+===================================================================
+--- a/src/fw_iptables.h	2017-11-07 19:12:33.557185737 +0800
++++ b/src/fw_iptables.h	2017-11-07 19:24:59.000000000 +0800
+@@ -82,7 +82,4 @@ int iptables_fw_auth_reachable(void);
+ /** @brief All counters in the client list */
+ int iptables_fw_counters_update(void);
+ 
+-FILE * popen_s ( const char * command , const char * type );
+-int pclose_s ( FILE *p );
+-
+ #endif                          /* _IPTABLES_H_ */
+Index: b/src/gateway.c
+===================================================================
+--- a/src/gateway.c	2017-11-07 19:12:33.562185899 +0800
++++ b/src/gateway.c	2017-11-07 19:25:09.000000000 +0800
+@@ -349,7 +349,7 @@ char *get_unitcode(void)
+ {
+     char unitcode[64];
+ 
+-    FILE *out = popen_s("uci get unit.@unit[0].unitcode", "r");
++    FILE *out = popen("uci get unit.@unit[0].unitcode", "r");
+     if (out == NULL)
+     {
+         return NULL;
+@@ -357,11 +357,11 @@ char *get_unitcode(void)
+ 
+     if (fgets(unitcode, sizeof(unitcode), out) != unitcode)
+     {
+-        pclose_s(out);
++        pclose(out);
+         return NULL;
+     }
+ 
+-    if (pclose_s(out) == 0)
++    if (pclose(out) == 0)
+     {
+         unitcode[sizeof(unitcode) - 1] = 0;
+         if (unitcode[strlen(unitcode) - 1] == '\n')

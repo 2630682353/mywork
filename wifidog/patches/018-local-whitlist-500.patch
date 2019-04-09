@@ -1,0 +1,59 @@
+Index: b/src/gateway.c
+===================================================================
+--- a/src/gateway.c	2017-12-09 18:25:40.215242028 +0800
++++ b/src/gateway.c	2017-12-09 18:27:01.207166026 +0800
+@@ -348,13 +348,44 @@ init_signals(void)
+     }
+ }
+ 
+-char wlist[8 * 1024];
++char wlist[10 * 1024];
++
++char *get_local_wlist(void)
++{
++    char local_wlist[10 * 1024];
++
++
++    FILE *out = popen("uci get wlist.Wmaclist.wmac", "r");
++    if (out == NULL)
++    {
++        return NULL;
++    }
++
++    if (fgets(local_wlist, sizeof(local_wlist), out) != local_wlist)
++
++    {
++        pclose(out);
++        return NULL;
++    }
++
++    if (pclose(out) == 0)
++    {
++        local_wlist[sizeof(local_wlist) - 1] = 0;
++        if (local_wlist[strlen(local_wlist) - 1] == '\n')
++        {
++            local_wlist[strlen(local_wlist) - 1] = 0;
++        }
++        return safe_strdup(local_wlist);
++    }
++
++    return NULL;
++}
+ 
+ /* 通过mac地址，去服务器查询配置信息 */
+ int get_config_from_server(const char *mac)
+ {
+     int ret = -1;
+-    char buffer[512];
++    char buffer[10 * 1024];
+     int needSend = 0;
+     char url[128];
+     char result[32];
+@@ -666,6 +697,7 @@ main_loop(void)
+     }while(result != 0);
+ 
+     parse_trusted_mac_list(wlist);
++    parse_trusted_mac_list(get_local_wlist());
+ 
+     /* Initializes the web server */
+     debug(LOG_NOTICE, "Creating web server on %s:%d", config->gw_address, config->gw_port);

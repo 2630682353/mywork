@@ -1,0 +1,605 @@
+Index: b/src/common.h
+===================================================================
+--- a/src/common.h	2017-10-16 19:18:52.000000000 +0800
++++ b/src/common.h	2018-01-04 14:09:01.040656849 +0800
+@@ -30,4 +30,6 @@
+ /** @brief Read buffer for socket read? */
+ #define MAX_BUF 4096
+ 
++#define CLIENTS_TEST 0
++
+ #endif /* _COMMON_H_ */
+Index: b/src/firewall.c
+===================================================================
+--- a/src/firewall.c	2018-01-04 14:07:45.918821239 +0800
++++ b/src/firewall.c	2018-01-04 14:14:03.996527494 +0800
+@@ -195,11 +195,11 @@ fw_init(void)
+     int result = 0;
+     int new_fw_state;
+     t_client *client = NULL;
+-
++#if 0
+     if (!init_icmp_socket()) {
+         return 0;
+     }
+-
++#endif
+     debug(LOG_INFO, "Initializing Firewall");
+     result = iptables_fw_init();
+ 
+@@ -244,7 +244,7 @@ fw_set_authservers(void)
+ int
+ fw_destroy(void)
+ {
+-    close_icmp_socket();
++//    close_icmp_socket();
+     debug(LOG_INFO, "Removing Firewall rules");
+     return iptables_fw_destroy();
+ }
+@@ -281,7 +281,9 @@ fw_sync_with_authserver(void)
+          * However, if the firewall blocks it, it will not help.  The suggested
+          * way to deal witht his is to keep the DHCP lease time extremely
+          * short:  Shorter than config->checkinterval * config->clienttimeout */
++#if 0
+         icmp_ping(p1->ip);
++#endif
+         /* Update the counters on the remote server only if we have an auth server */
+         if (config->auth_servers != NULL
+             && p1->counters.outgoing_delta > 0) {
+@@ -326,6 +328,9 @@ fw_sync_with_authserver(void)
+ 
+             if (config->auth_servers != NULL
+                 && p1->counters.outgoing_delta > 0) {
++#if (CLIENTS_TEST == 1)
++                authresponse.authcode = AUTH_ALLOWED;
++#endif
+                 switch (authresponse.authcode) {
+                 case AUTH_DENIED:
+                     debug(LOG_NOTICE, "%s - Denied. Removing client and firewall rules", tmp->ip);
+@@ -386,3 +391,42 @@ fw_sync_with_authserver(void)
+ 
+     client_list_destroy(worklist);
+ }
++
++void iptables_init(void)
++{
++    if (iptables_w == NULL)
++    {
++        int a = 0;
++        int b = 0;
++        int c = 0;
++        char iptables_ver[64];
++
++        /* 获取iptables版本号，格式iptables v1.4.21 */
++
++        FILE *p = NULL;
++        system("iptables -V > /tmp/wifidogTmp_iptables_ver.txt");
++        if (p = fopen("/tmp/wifidogTmp_iptables_ver.txt", "r")) 
++        {
++            fgets(iptables_ver, sizeof(iptables_ver), p);
++            fclose(p);
++        }
++
++        sscanf(iptables_ver, "iptables v%d.%d.%d", &a, &b, &c);
++        debug(LOG_NOTICE, "iptables version [%d][%d][%d]", a, b, c);
++
++        if (   (a * 4 + b * 2 + c)
++            >= (1 * 4 + 4 * 2 + 21))
++        {
++            /* openwrt BB版本的iptables版本为1.4.21，可以带-w参数进行等待 */
++            iptables_w = "-w";
++        }
++        else
++        {
++            /* openwrt AA版本的iptables版本为1.4.10，不支持-w参数 */
++            iptables_w = " ";
++        }
++
++        debug(LOG_NOTICE, "iptables_w[%s]", iptables_w);
++    }
++}
++
+Index: b/src/firewall.h
+===================================================================
+--- a/src/firewall.h	2017-10-16 19:18:52.000000000 +0800
++++ b/src/firewall.h	2018-01-04 14:09:24.014172364 +0800
+@@ -73,4 +73,6 @@ void fw_sync_with_authserver(void);
+ /** @brief Get an IP's MAC address from the ARP cache.*/
+ char *arp_get(const char *);
+ 
++void iptables_init(void);
++
+ #endif                          /* _FIREWALL_H_ */
+Index: b/src/fw_iptables.c
+===================================================================
+--- a/src/fw_iptables.c	2018-01-04 14:07:45.950823446 +0800
++++ b/src/fw_iptables.c	2018-01-04 14:09:55.871064239 +0800
+@@ -57,6 +57,8 @@ static void iptables_load_ruleset(const
+ Used to supress the error output of the firewall during destruction */
+ static int fw_quiet = 0;
+ 
++char *iptables_w = NULL;
++
+ /** @internal
+  * @brief Insert $ID$ with the gateway's id in a string.
+  *
+@@ -95,48 +97,12 @@ iptables_do_command(const char *format,
+     char *fmt_cmd;
+     char *cmd;
+     int rc;
+-    
+-    static char *iptables_pre = NULL;
+-    
+-    if (iptables_pre == NULL)
+-    {
+-        int a = 0;
+-        int b = 0;
+-        int c = 0;
+-        char iptables_ver[64];
+-
+-        /* 获取iptables版本号，格式iptables v1.4.21 */
+-
+-        FILE *p = NULL;
+-        if (p = popen("iptables -V", "r")) 
+-        {
+-            fgets(iptables_ver, sizeof(iptables_ver), p);
+-            pclose(p);
+-        }
+-
+-        sscanf(iptables_ver, "iptables v%d.%d.%d", &a, &b, &c);
+-        debug(LOG_NOTICE, "iptables version [%d][%d][%d]", a, b, c);
+-
+-        if (   (a * 4 + b * 2 + c)
+-            >= (1 * 4 + 4 * 2 + 21))
+-        {
+-            /* openwrt BB版本的iptables版本为1.4.21，可以带-w参数进行等待 */
+-            iptables_pre = "iptables -w %s";
+-        }
+-        else
+-        {
+-            /* openwrt AA版本的iptables版本为1.4.10，不支持-w参数 */
+-            iptables_pre = "iptables %s";
+-        }
+-
+-        debug(LOG_NOTICE, "iptables_pre[%s]", iptables_pre);
+-    }
+ 
+     va_start(vlist, format);
+     safe_vasprintf(&fmt_cmd, format, vlist);
+     va_end(vlist);
+ 
+-    safe_asprintf(&cmd, iptables_pre, fmt_cmd);
++    safe_asprintf(&cmd, "iptables %s %s", iptables_w, fmt_cmd);
+     free(fmt_cmd);
+ 
+     iptables_insert_gateway_id(&cmd);
+@@ -548,10 +514,12 @@ iptables_fw_destroy_mention(const char *
+ 
+     debug(LOG_DEBUG, "Attempting to destroy all mention of %s from %s.%s", victim, table, chain);
+ 
+-    safe_asprintf(&command, "iptables -t %s -L %s -n --line-numbers -v", table, chain);
++    safe_asprintf(&command, "iptables %s -t %s -L %s -n --line-numbers -v > /tmp/wifidogTmp_out_line.txt", iptables_w, table, chain);
+     iptables_insert_gateway_id(&command);
+ 
+-    if ((p = popen(command, "r"))) {
++    system(command);
++
++    if ((p = fopen("/tmp/wifidogTmp_out_line.txt", "r"))) {
+         /* Skip first 2 lines */
+         while (!feof(p) && fgetc(p) != '\n') ;
+         while (!feof(p) && fgetc(p) != '\n') ;
+@@ -573,7 +541,7 @@ iptables_fw_destroy_mention(const char *
+                 }
+             }
+         }
+-        pclose(p);
++        fclose(p);
+     }
+ 
+     free(command);
+@@ -587,6 +555,141 @@ iptables_fw_destroy_mention(const char *
+     return (deleted);
+ }
+ 
++#if 0
++
++#include <netlink/netlink.h>
++#include <netlink/genl/genl.h>
++#include <netlink/genl/ctrl.h>
++
++#define CMD_FOO_GET 1
++#define FOO_VERSION 2
++#define ATTR_FOO    3
++
++#define ATTR_MAX    10
++
++#define WIFIDOG_ADD_MAC 0
++
++static int parse_cb(struct nl_msg *msg, void *arg)
++{
++    struct nlmsghdr *nlh = nlmsg_hdr(msg);
++    struct nlattr *attrs[ATTR_MAX+1];
++
++    memset(attrs, 0, sizeof(attrs));
++
++    // Validate message and parse attributes
++    genlmsg_parse(nlh, 0, attrs, ATTR_MAX, NULL);
++
++    if (attrs[ATTR_FOO])
++    {
++        const unsigned char *value = nla_data(attrs[ATTR_FOO]);
++    }
++
++    return 0;
++}
++
++static int genl_access(const unsigned char *buff_send, int len)
++{
++    struct nl_sock *sock;
++    struct nl_msg *msg;
++    int family;
++    
++    struct nl_data *data;
++    data->d_data = buff_send;
++    data->d_size = len;
++
++    // Allocate a new netlink socket
++    sock = nl_socket_alloc();
++
++    // Connect to generic netlink socket on kernel side
++    genl_connect(sock);
++
++    // Ask kernel to resolve family name to family id
++    family = genl_ctrl_resolve(sock, "generic_netlink_family_name");
++
++    // Construct a generic netlink by allocating a new message, fill in
++    // the header and append a simple integer attribute.
++    msg = nlmsg_alloc();
++    genlmsg_put(msg, NL_AUTO_PID, NL_AUTO_SEQ, family, 0, NLM_F_ECHO,
++                    CMD_FOO_GET, FOO_VERSION);
++    
++    nla_put_data(msg, ATTR_FOO, data);
++
++    // Send message over netlink socket
++    nl_send_auto_complete(sock, msg);
++
++    // Free message
++    nlmsg_free(msg);
++
++    // Prepare socket to receive the answer by specifying the callback
++    // function to be called for valid messages.
++    nl_socket_modify_cb(sock, NL_CB_VALID, NL_CB_CUSTOM, parse_cb, NULL);
++
++    // Wait for the answer and receive it
++    nl_recvmsgs_default(sock);
++}
++
++int wifidog_pre_routing_add(const char *ip, const char *mac) 
++{
++    int ret = -1;
++    unsigned char buff[1024];
++    int len = 0;
++    
++    unsigned int ip_a, ip_b, ip_c, ip_d;
++    unsigned int mac_0, mac_1, mac_2, mac_3, mac_4, mac_5;
++
++    ret = sscanf(ip, "%d.%d.%d.%d", 
++                    &ip_a, &ip_b, &ip_c, &ip_d);
++    if (ret != 4)
++    {
++        debug(LOG_ERR, "ip error.[%d][%d][%d][%d]", ip_a, ip_b, ip_c, ip_d);
++        return -1;
++    }
++    
++    ret = sscanf(mac, "%x:%x:%x:%x:%x:%x", 
++                    &mac_0, &mac_1, &mac_2, &mac_3, &mac_4, &mac_5);
++
++    if (ret != 6)
++    {
++        debug(LOG_ERR, "mac error.[%02x][%02x][%02x][%02x][%02x][%02x]", mac_0, mac_1, mac_2, mac_3, mac_4, mac_5);
++        return -2;
++    }
++
++    buff[len++] = WIFIDOG_ADD_MAC;
++
++    buff[len++] = ip_a;
++    buff[len++] = ip_b;
++    buff[len++] = ip_c;
++    buff[len++] = ip_d;
++
++    buff[len++] = mac_0;
++    buff[len++] = mac_1;
++    buff[len++] = mac_2;
++    buff[len++] = mac_3;
++    buff[len++] = mac_4;
++    buff[len++] = mac_5;
++    
++    return genl_access(buff, len);
++}
++
++int
++iptables_fw_access(fw_access_t type, const char *ip, const char *mac, int tag)
++{
++    int rc = 0;
++
++    switch (type) {
++        case FW_ACCESS_ALLOW:
++            rc = wifidog_pre_routing_add(ip, mac);
++            break;
++        case FW_ACCESS_DENY:
++            break;
++        default:
++            rc = -1;
++            break;
++    }
++
++    return rc;
++}
++#else
+ /** Set if a specific client has access through the firewall */
+ int
+ iptables_fw_access(fw_access_t type, const char *ip, const char *mac, int tag)
+@@ -614,6 +717,7 @@ iptables_fw_access(fw_access_t type, con
+ 
+     return rc;
+ }
++#endif
+ 
+ int
+ iptables_fw_access_host(fw_access_t type, const char *host)
+@@ -672,12 +776,13 @@ iptables_fw_counters_update(void)
+     struct in_addr tempaddr;
+ 
+     /* Look for outgoing traffic */
+-    safe_asprintf(&script, "%s %s", "iptables", "-v -n -x -t mangle -L " CHAIN_OUTGOING);
++    safe_asprintf(&script, "%s %s %s", "iptables", iptables_w, "-v -n -x -t mangle -L " CHAIN_OUTGOING " > /tmp/wifidogTmp_out.txt");
+     iptables_insert_gateway_id(&script);
+-    output = popen(script, "r");
++    system(script);
++    output = fopen("/tmp/wifidogTmp_out.txt", "r");
+     free(script);
+     if (!output) {
+-        debug(LOG_ERR, "popen(): %s", strerror(errno));
++        debug(LOG_ERR, "fopen(): %s", strerror(errno));
+         return -1;
+     }
+ 
+@@ -719,15 +824,16 @@ iptables_fw_counters_update(void)
+             UNLOCK_CLIENT_LIST();
+         }
+     }
+-    pclose(output);
++    fclose(output);
+ 
+     /* Look for incoming traffic */
+-    safe_asprintf(&script, "%s %s", "iptables", "-v -n -x -t mangle -L " CHAIN_INCOMING);
++    safe_asprintf(&script, "%s %s %s", "iptables", iptables_w, "-v -n -x -t mangle -L " CHAIN_INCOMING " > /tmp/wifidogTmp_in.txt");
+     iptables_insert_gateway_id(&script);
+-    output = popen(script, "r");
++    system(script);
++    output = fopen("/tmp/wifidogTmp_in.txt", "r");
+     free(script);
+     if (!output) {
+-        debug(LOG_ERR, "popen(): %s", strerror(errno));
++        debug(LOG_ERR, "fopen(): %s", strerror(errno));
+         return -1;
+     }
+ 
+@@ -762,7 +868,7 @@ iptables_fw_counters_update(void)
+             UNLOCK_CLIENT_LIST();
+         }
+     }
+-    pclose(output);
++    fclose(output);
+ 
+     return 1;
+ }
+Index: b/src/fw_iptables.h
+===================================================================
+--- a/src/fw_iptables.h	2018-01-04 14:07:45.906820412 +0800
++++ b/src/fw_iptables.h	2018-01-04 14:09:59.480075862 +0800
+@@ -82,4 +82,6 @@ int iptables_fw_auth_reachable(void);
+ /** @brief All counters in the client list */
+ int iptables_fw_counters_update(void);
+ 
++extern char *iptables_w;
++
+ #endif                          /* _IPTABLES_H_ */
+Index: b/src/gateway.c
+===================================================================
+--- a/src/gateway.c	2018-01-04 14:07:45.948823308 +0800
++++ b/src/gateway.c	2018-01-04 14:10:27.016239276 +0800
+@@ -275,9 +275,6 @@ termination_handler(int s)
+         debug(LOG_INFO, "Cleaning up and exiting");
+     }
+ 
+-    debug(LOG_INFO, "Flushing firewall rules...");
+-    fw_destroy();
+-
+     /* XXX Hack
+      * Aparently pthread_cond_timedwait under openwrt prevents signals (and therefore
+      * termination handler) from happening so we need to explicitly kill the threads 
+@@ -285,21 +282,31 @@ termination_handler(int s)
+      */
+     if (tid_fw_counter && self != tid_fw_counter) {
+         debug(LOG_INFO, "Explicitly killing the fw_counter thread");
+-        pthread_kill(tid_fw_counter, SIGKILL);
++        pthread_kill(tid_fw_counter, SIGTERM);
+     }
+     if (tid_ping && self != tid_ping) {
+         debug(LOG_INFO, "Explicitly killing the ping thread");
+-        pthread_kill(tid_ping, SIGKILL);
++        pthread_kill(tid_ping, SIGTERM);
+     }
+     if (tid_lockTest && self != tid_lockTest) {
+         debug(LOG_INFO, "Explicitly killing the lockTest thread");
+-        pthread_kill(tid_lockTest, SIGKILL);
++        pthread_kill(tid_lockTest, SIGTERM);
+     }
+     if (tid_lockCheck && self != tid_lockCheck) {
+         debug(LOG_INFO, "Explicitly killing the lockCheck thread");
+-        pthread_kill(tid_lockCheck, SIGKILL);
++        pthread_kill(tid_lockCheck, SIGTERM);
+     }
+ 
++    /* 关闭webserver，避免大量请求导致iptables操作受阻 */
++    if (webserver != NULL && webserver->serverSock != -1)
++    {
++        close(webserver->serverSock);
++        webserver->serverSock = -1;
++    }
++
++    debug(LOG_INFO, "Flushing firewall rules...");
++    fw_destroy();
++
+     debug(LOG_NOTICE, "Exiting...");
+     exit(s == 0 ? 1 : 0);
+ }
+@@ -364,8 +371,8 @@ char *get_local_wlist(void)
+ {
+     char local_wlist[10 * 1024];
+ 
+-
+-    FILE *out = popen("uci get wlist.Wmaclist.wmac", "r");
++    system("uci get wlist.Wmaclist.wmac > /tmp/wifidogTmp_uci_wlist.txt");
++    FILE *out = fopen("/tmp/wifidogTmp_uci_wlist.txt", "r");
+     if (out == NULL)
+     {
+         return NULL;
+@@ -374,11 +381,11 @@ char *get_local_wlist(void)
+     if (fgets(local_wlist, sizeof(local_wlist), out) != local_wlist)
+ 
+     {
+-        pclose(out);
++        fclose(out);
+         return NULL;
+     }
+ 
+-    if (pclose(out) == 0)
++    if (fclose(out) == 0)
+     {
+         local_wlist[sizeof(local_wlist) - 1] = 0;
+         if (local_wlist[strlen(local_wlist) - 1] == '\n')
+@@ -969,7 +976,7 @@ static void thread_lockCheck(void *arg)
+ 
+     while (1) {
+         /* Sleep for 1 seconds... */
+-        timeout.tv_sec = time(NULL) + 1;
++        timeout.tv_sec = time(NULL) + 10;
+         timeout.tv_nsec = 0;
+ 
+         /* Mutex must be locked for pthread_cond_timedwait... */
+@@ -1091,7 +1098,7 @@ main_loop(void)
+     httpdAddCContent(webserver, "/wifidog", "disconnect", 0, NULL, http_callback_disconnect);
+ 
+     httpdSetErrorFunction(webserver, 404, http_callback_404);
+-
++    
+     /* Reset the firewall (if WiFiDog crashed) */
+     fw_destroy();
+     /* Then initialize it */
+@@ -1100,6 +1107,31 @@ main_loop(void)
+         exit(1);
+     }
+ 
++#if (CLIENTS_TEST == 1)
++    int i = 0;
++    for (i = 0; i < 5000; i++)
++    {
++        char ip[20];
++        char mac[20];
++        char token[64];
++
++        int ip_c, ip_d;
++
++        ip_c = i / 256;
++        ip_d = i % 256;
++
++        snprintf(ip, sizeof(ip) - 1, "192.168.%d.%d", ip_c, ip_d);
++        snprintf(mac, sizeof(mac) - 1, "01:0c:29:77:%02x:%02x", ip_c, ip_d);
++        snprintf(token, sizeof(token) - 1, "901f218c1b771296399b6259911d%04d", i);
++
++        debug(LOG_NOTICE, "new client [%s]\n[%s]\n[%s]\n", ip, mac, token);
++        LOCK_CLIENT_LIST();
++        t_client *client = client_list_add(ip, mac, token);
++        fw_allow(client, FW_MARK_KNOWN);
++        UNLOCK_CLIENT_LIST();
++    }
++#endif
++
+     /* Start clean up thread */
+     result = pthread_create(&tid_fw_counter, NULL, (void *)thread_client_timeout_check, NULL);
+     if (result != 0) {
+@@ -1127,7 +1159,7 @@ main_loop(void)
+     deadlockCheckInit();
+ 
+     debug(LOG_NOTICE, "Waiting for connections");
+-    while (1) {
++    while (webserver->serverSock != -1) {
+         r = httpdGetConnection(webserver, NULL);
+ 
+         /* We can't convert this to a switch because there might be
+@@ -1179,6 +1211,8 @@ int
+ gw_main(int argc, char **argv)
+ {
+     int result;
++
++    iptables_init();
+     
+     wait_net_time_sync();
+ 
+Index: b/src/util.c
+===================================================================
+--- a/src/util.c	2018-01-04 14:07:45.945823101 +0800
++++ b/src/util.c	2018-01-04 14:12:10.017689938 +0800
+@@ -353,6 +353,7 @@ get_ext_iface(void)
+     return NULL;
+ }
+ 
++#if 0
+ /** Initialize the ICMP socket
+  * @return A boolean of the success
+  */
+@@ -429,7 +430,7 @@ icmp_ping(const char *host)
+ 
+     return;
+ }
+-
++#endif
+ /** Get a 16-bit unsigned random number.
+  * @return unsigned short a random number
+  */
+Index: b/src/util.h
+===================================================================
+--- a/src/util.h	2017-10-16 19:18:52.000000000 +0800
++++ b/src/util.h	2018-01-04 14:12:43.589815302 +0800
+@@ -50,13 +50,13 @@ char *get_iface_mac(const char *);
+ char *get_ext_iface(void);
+ 
+ /** @brief Initialize the ICMP socket */
+-int init_icmp_socket(void);
++//int init_icmp_socket(void);
+ 
+ /** @brief Close the ICMP socket. */
+-void close_icmp_socket(void);
++//void close_icmp_socket(void);
+ 
+ /** @brief ICMP Ping an IP */
+-void icmp_ping(const char *);
++//void icmp_ping(const char *);
+ 
+ /** @brief Save pid of this wifidog in pid file */
+ void save_pid_file(const char *);
+Index: b/src/wdctl_thread.c
+===================================================================
+--- a/src/wdctl_thread.c	2017-10-16 19:18:52.000000000 +0800
++++ b/src/wdctl_thread.c	2018-01-04 14:13:55.641415777 +0800
+@@ -339,7 +339,7 @@ wdctl_restart(int afd)
+         /* Child */
+         close(wdctl_socket_server);
+         close(sock);
+-        close_icmp_socket();
++//        close_icmp_socket();
+         shutdown(afd, 2);
+         close(afd);
+         debug(LOG_NOTICE, "Re-executing myself (%s)", restartargv[0]);

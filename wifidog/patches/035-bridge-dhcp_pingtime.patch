@@ -1,0 +1,192 @@
+Index: b/src/conf.h
+===================================================================
+--- a/src/conf.h	2017-10-16 19:18:52.000000000 +0800
++++ b/src/conf.h	2018-02-21 01:07:11.449357482 +0800
+@@ -237,4 +237,6 @@ t_firewall_rule *get_ruleset(const char
+ 	debug(LOG_DEBUG, "Config unlocked"); \
+ } while (0)
+ 
++#define PING_INTERVAL (300)
++
+ #endif                          /* _CONFIG_H_ */
+Index: b/src/fw_iptables.c
+===================================================================
+--- a/src/fw_iptables.c	2018-02-21 01:05:12.181457475 +0800
++++ b/src/fw_iptables.c	2018-02-21 01:07:30.113429106 +0800
+@@ -55,7 +55,7 @@ static void iptables_load_ruleset(const
+ 
+ /**
+ Used to supress the error output of the firewall during destruction */
+-static int fw_quiet = 0;
++int fw_quiet = 0;
+ 
+ char *iptables_w = NULL;
+ 
+@@ -107,17 +107,7 @@ iptables_do_command(const char *format,
+ 
+     iptables_insert_gateway_id(&cmd);
+ 
+-    debug(LOG_DEBUG, "Executing command: %s", cmd);
+-
+-    rc = execute(cmd, fw_quiet);
+-
+-    if (rc != 0) {
+-        // If quiet, do not display the error
+-        if (fw_quiet == 0)
+-            debug(LOG_ERR, "iptables command failed(%d): %s", rc, cmd);
+-        else if (fw_quiet == 1)
+-            debug(LOG_DEBUG, "iptables command failed(%d): %s", rc, cmd);
+-    }
++    rc = execute(cmd);
+ 
+     free(cmd);
+ 
+@@ -308,12 +298,14 @@ iptables_fw_init(void)
+                             ext_gw_ip, FW_MARK_KNOWN);
+ 
+         /* 使能网桥防火墙 */
+-        /* 实测dhcp使用的端口67,68在广播的时候会被拦截。所以这里单独处理 */
+-        system("ebtables -t broute -A BROUTING -p ipv4 --ip-dst 255.255.255.255 -j ACCEPT");
++        /* 二层redirect的时候目的MAC会变成网桥MAC */
++        /* 所以依赖MAC的功能(例如dhcp)在这里特殊处理 */    
++        execute("ebtables -t broute -I BROUTING -p ipv4 --ip-proto udp --ip-dport 67 -j ACCEPT");
++        execute("ebtables -t broute -I BROUTING -p ipv4 --ip-proto udp --ip-dport 68 -j ACCEPT");
+         
+-        system("ebtables -t broute -A BROUTING -p ipv4 --ip-proto tcp -j redirect --redirect-target ACCEPT");
+-        system("ebtables -t broute -A BROUTING -p ipv4 --ip-proto udp -j redirect --redirect-target ACCEPT");
+-        system("ebtables -t broute -A BROUTING -p ipv4 --ip-proto icmp -j redirect --redirect-target ACCEPT");
++        execute("ebtables -t broute -A BROUTING -p ipv4 --ip-proto tcp -j redirect --redirect-target ACCEPT");
++        execute("ebtables -t broute -A BROUTING -p ipv4 --ip-proto udp -j redirect --redirect-target ACCEPT");
++        execute("ebtables -t broute -A BROUTING -p ipv4 --ip-proto icmp -j redirect --redirect-target ACCEPT");
+     }
+ 
+     /*
+@@ -517,7 +509,7 @@ iptables_fw_destroy(void)
+         iptables_do_command("-t filter -X " CHAIN_AUTH_IS_DOWN);
+ 
+     /* 禁能网桥防火墙 */    
+-    system("ebtables -t broute -F");
++    execute("ebtables -t broute -F");
+ 
+     return 1;
+ }
+Index: b/src/fw_iptables.h
+===================================================================
+--- a/src/fw_iptables.h	2018-02-21 01:05:12.155456183 +0800
++++ b/src/fw_iptables.h	2018-02-21 01:07:36.309581255 +0800
+@@ -83,5 +83,6 @@ int iptables_fw_auth_reachable(void);
+ int iptables_fw_counters_update(void);
+ 
+ extern char *iptables_w;
++extern int fw_quiet;
+ 
+ #endif                          /* _IPTABLES_H_ */
+Index: b/src/ping_thread.c
+===================================================================
+--- a/src/ping_thread.c	2018-02-21 01:05:12.084452652 +0800
++++ b/src/ping_thread.c	2018-02-21 01:07:42.127274729 +0800
+@@ -75,7 +75,7 @@ thread_ping(void *arg)
+         ping();
+ 
+         /* Sleep for config.checkinterval seconds... */
+-        timeout.tv_sec = time(NULL) + 30;
++        timeout.tv_sec = time(NULL) + PING_INTERVAL;
+         timeout.tv_nsec = 0;
+ 
+         /* Mutex must be locked for pthread_cond_timedwait... */
+Index: b/src/util.c
+===================================================================
+--- a/src/util.c	2018-02-21 01:05:12.173457078 +0800
++++ b/src/util.c	2018-02-21 01:07:56.579034053 +0800
+@@ -60,6 +60,7 @@
+ 
+ #include "../config.h"
+ #include "conf.h"
++#include "fw_iptables.h"
+ 
+ #define LOCK_GHBN() do { \
+ 	debug(LOG_DEBUG, "Locking wd_gethostbyname()"); \
+@@ -118,15 +119,23 @@ int thread_sleep(int ms)
+  * @return Return code of the command
+  */
+ int
+-execute(const char *cmd_line, int quiet)
++execute(const char *cmd_line)
+ {
+ #if 1
+     /* 使用system执行命令*/
+     /* 实测fork+execvp会出现概率性卡死，而system不会出错。 */
++    debug(LOG_DEBUG, "Executing command: %s", cmd_line);
++    int rc = system(cmd_line);
+ 
+-    int ret = system(cmd_line);
++    if (rc != 0)
++    {
++        if (fw_quiet == 0)
++            debug(LOG_ERR, "execute command failed(%d): %s", rc, cmd_line);
++        else if (fw_quiet == 1)
++            debug(LOG_DEBUG, "execute command failed(%d): %s", rc, cmd_line);
++    }
+ 
+-    if (ret == -1 && errno != 0)
++    if (rc == -1 && errno != 0)
+     {
+         debug(LOG_ERR, "execute failed , exit... %s", strerror(errno));
+         /* system失败，直接结束整个进程 */
+@@ -134,7 +143,7 @@ execute(const char *cmd_line, int quiet)
+     }
+     else
+     {
+-        return ret;
++        return rc;
+     }
+ 
+ #else
+Index: b/src/util.h
+===================================================================
+--- a/src/util.h	2018-02-21 01:05:12.170456928 +0800
++++ b/src/util.h	2018-02-21 01:08:02.573310754 +0800
+@@ -35,7 +35,7 @@
+ #define EXT_INTERFACE_DETECT_RETRY_INTERVAL 1
+ 
+ /** @brief Execute a shell command */
+-int execute(const char *, int);
++int execute(const char *);
+ 
+ /** @brief Thread safe gethostbyname */
+ struct in_addr *wd_gethostbyname(const char *);
+Index: b/src/wd_util.c
+===================================================================
+--- a/src/wd_util.c	2018-02-21 01:05:12.164456630 +0800
++++ b/src/wd_util.c	2018-02-21 01:08:16.407669155 +0800
+@@ -93,7 +93,7 @@ mark_offline()
+ int
+ is_online()
+ {
+-    if (last_online_time == 0 || (last_offline_time - last_online_time) >= (30 * 2)) {
++    if (last_online_time == 0 || (last_offline_time - last_online_time) >= (PING_INTERVAL * 2)) {
+         /* We're probably offline */
+         return (0);
+     } else {
+@@ -144,7 +144,7 @@ is_auth_online()
+         /* If we're not online auth is definately not online :) */
+         return (0);
+     } else if (last_auth_online_time == 0
+-               || (last_auth_offline_time - last_auth_online_time) >= (30 * 2)) {
++               || (last_auth_offline_time - last_auth_online_time) >= (PING_INTERVAL * 2)) {
+         /* Auth is  probably offline */
+         return (0);
+     } else {
+Index: b/wifidog.conf
+===================================================================
+--- a/wifidog.conf	2018-02-21 01:05:12.164456630 +0800
++++ b/wifidog.conf	2018-02-21 01:08:24.185872455 +0800
+@@ -369,6 +369,8 @@ FirewallRuleSet unknown-users {
+     FirewallRule allow tcp port 53
+     FirewallRule allow udp port 67
+     FirewallRule allow tcp port 67
++    FirewallRule allow udp port 68
++    FirewallRule allow tcp port 68
+     FirewallRule allow to config.cdsjwx.cn
+ }
+ 

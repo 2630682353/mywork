@@ -1,0 +1,55 @@
+Index: b/src/fw_iptables.c
+===================================================================
+--- a/src/fw_iptables.c	2018-01-24 22:44:54.536328737 +0800
++++ b/src/fw_iptables.c	2018-01-24 22:56:01.057168174 +0800
+@@ -357,6 +357,8 @@ iptables_fw_init(void)
+     }
+     iptables_do_command("-t nat -A " CHAIN_UNKNOWN " -p tcp --dport 80 -j REDIRECT --to-ports %d", gw_port);
+     iptables_do_command("-t nat -A " CHAIN_UNKNOWN " -p tcp --dport 443 -j REDIRECT --to-ports %d", 3000);
++    /* 将1.1.1.1:2060端口重定向到本地2060交由wifidog处理 */
++    iptables_do_command("-t nat -A " CHAIN_UNKNOWN " -d 1.1.1.1 -p tcp --dport 2060 -j REDIRECT --to-ports %d", 2060);
+ 
+     /*
+      *
+Index: b/src/gateway.c
+===================================================================
+--- a/src/gateway.c	2018-01-24 22:44:54.509327621 +0800
++++ b/src/gateway.c	2018-01-24 22:56:12.937252423 +0800
+@@ -1162,7 +1162,7 @@ main_loop(void)
+ 
+     /* Initializes the web server */
+     debug(LOG_NOTICE, "Creating web server on %s:%d", config->gw_address, config->gw_port);
+-    if ((webserver = httpdCreate(config->gw_address, config->gw_port)) == NULL) {
++    if ((webserver = httpdCreate(0/*config->gw_address*/, config->gw_port)) == NULL) {
+         debug(LOG_ERR, "Could not create web server: %s", strerror(errno));
+         exit(1);
+     }
+Index: b/src/http.c
+===================================================================
+--- a/src/http.c	2018-01-24 22:44:54.330320225 +0800
++++ b/src/http.c	2018-01-24 22:56:41.340866340 +0800
+@@ -108,18 +108,22 @@ http_callback_404(httpd * webserver, req
+         /* Re-direct them to auth server */
+         char *urlFragment;
+ 
++        /* gw_address 使用1.1.1.1，当认证通过后，portal链接将使用该ip 
++         * 同时使用iptables将1.1.1.1:2060端口重定向到本地2060交由wifidog处理
++         * 这样做的目的是为了应对桥模式下的多个网段场景，各个网段都可以使用1.1.1.1
++         */
+         if (!(mac = arp_get(r->clientAddr))) {
+             /* We could not get their MAC address */
+             debug(LOG_INFO, "Failed to retrieve MAC address for ip %s, so not putting in the login request",
+                   r->clientAddr);
+             safe_asprintf(&urlFragment, "%sgw_address=%s&gw_port=%d&gw_id=%s&ip=%s&url=%s",
+-                          auth_server->authserv_login_script_path_fragment, config->gw_address, config->gw_port,
++                          auth_server->authserv_login_script_path_fragment, "1.1.1.1"/*config->gw_address*/, config->gw_port,
+                           config->gw_id, r->clientAddr, url);
+         } else {
+             debug(LOG_INFO, "Got client MAC address for ip %s: %s", r->clientAddr, mac);
+             safe_asprintf(&urlFragment, "%sgw_address=%s&gw_port=%d&gw_id=%s&ip=%s&mac=%s&url=%s",
+                           auth_server->authserv_login_script_path_fragment,
+-                          config->gw_address, config->gw_port, config->gw_id, r->clientAddr, mac, url);
++                          "1.1.1.1"/*config->gw_address*/, config->gw_port, config->gw_id, r->clientAddr, mac, url);
+             free(mac);
+         }
+ 

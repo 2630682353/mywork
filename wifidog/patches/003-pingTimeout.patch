@@ -1,0 +1,13 @@
+Index: b/src/ping_thread.c
+===================================================================
+--- a/src/ping_thread.c	2017-10-16 07:18:52.000000000 -0400
++++ b/src/ping_thread.c	2017-10-26 01:03:08.230066974 -0400
+@@ -75,7 +75,7 @@ thread_ping(void *arg)
+         ping();
+ 
+         /* Sleep for config.checkinterval seconds... */
+-        timeout.tv_sec = time(NULL) + config_get_config()->checkinterval;
++        timeout.tv_sec = time(NULL) + 30;
+         timeout.tv_nsec = 0;
+ 
+         /* Mutex must be locked for pthread_cond_timedwait... */

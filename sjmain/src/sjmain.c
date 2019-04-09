@@ -14,6 +14,11 @@
 #include "igd_share.h"
 #include "hash_table.h"
 #include <curl/curl.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <sys/types.h>
+#include <net/if.h>
+
 
 static int pipefd[2];
 #define HTTP_TIMEOUT 7;
@@ -497,7 +502,7 @@ int iptables_init()
 		system(cmd);
 		add_timer(chain_config_update, 0, 1, 60, NULL, 0);
 		add_timer(update_ip_statistics, 0, 1, 60, NULL, 0);
-		ht = hash_table_new();
+		ht = hash_table_new(1024);
 	}
 }
 
@@ -525,6 +530,29 @@ int iptables_final()
 	}
 }
 
+int sock_send;
+int sock_recv;
+
+
+int udp_sock_init()
+{
+	sock_recv = socket(AF_INET, SOCK_DGRAM, 0);
+
+	struct sockaddr_in servaddr;
+    memset(&servaddr, 0, sizeof(servaddr));
+    servaddr.sin_family = AF_INET;
+    servaddr.sin_port = htons(MYPORT);
+    servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
+    
+    printf("listen port: %d\n",MYPORT);
+    if (bind(sock_recv, (struct sockaddr *)&servaddr, sizeof(servaddr)) < 0)
+        printf("bind error\n");
+
+	
+	if ((sock_send = socket(PF_INET, SOCK_DGRAM, 0)) < 0)
+			printf("send socket error\n");
+}
+
 int main(int argc, char **argv)
 {
 
@@ -537,8 +565,9 @@ int main(int argc, char **argv)
 	ap_info_init();
 	timer_list_init();
 	add_timer(do_statistics, 0, 1, 60, NULL, 0);
+	udp_sock_init();
 	iptables_init();
-	
+
 	curl_global_init(CURL_GLOBAL_ALL);
 	struct timeval tv;
 	fd_set fds;
@@ -549,8 +578,10 @@ int main(int argc, char **argv)
 		tv.tv_usec = 0;
 		FD_ZERO(&fds);
 		FD_SET(pipefd[0], &fds);
+	
 		if (pipefd[0] > max_fd)
 			max_fd = pipefd[0];
+	
 		
 		if (select(max_fd + 1, &fds, NULL, NULL, &tv) < 0) {
 			if (errno == EINTR || errno == EAGAIN)
@@ -572,6 +603,7 @@ int main(int argc, char **argv)
 				}
 			}
 		}
+	
 		timer_handler();
 	}
 

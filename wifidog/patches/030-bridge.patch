@@ -1,0 +1,150 @@
+Index: b/src/fw_iptables.c
+===================================================================
+--- a/src/fw_iptables.c	2018-01-17 14:37:19.509547888 +0800
++++ b/src/fw_iptables.c	2018-01-17 14:46:35.610121573 +0800
+@@ -292,6 +292,14 @@ iptables_fw_init(void)
+         iptables_do_command("-t mangle -A " CHAIN_TRUSTED " -m mac --mac-source %s -j MARK --set-mark %d", p->mac,
+                             FW_MARK_KNOWN);
+ 
++    /* 网关放行*/
++    /* 桥模式的网关不是设备本身 ，网关需要放行才能上桥*/
++    if (ext_gw_mac != NULL)
++    {
++        iptables_do_command("-t mangle -A " CHAIN_TRUSTED " -m mac --mac-source %s -j MARK --set-mark %d", 
++                            ext_gw_mac, FW_MARK_KNOWN);
++    }
++
+     /*
+      *
+      * Everything in the NAT table
+@@ -312,6 +320,13 @@ iptables_fw_init(void)
+     iptables_do_command("-t nat -A PREROUTING -i %s -j " CHAIN_OUTGOING, config->gw_interface);
+ 
+     iptables_do_command("-t nat -A " CHAIN_OUTGOING " -d %s -j " CHAIN_TO_ROUTER, config->gw_address);
++    
++    /* 桥模式下，允许访问网关 */
++    if (ext_gw_ip != NULL && memcmp(config->gw_address, ext_gw_ip, strlen(config->gw_address) + 1))
++    {
++        iptables_do_command("-t nat -A " CHAIN_OUTGOING " -d %s -j " CHAIN_TO_ROUTER, ext_gw_ip);
++    }
++    
+     iptables_do_command("-t nat -A " CHAIN_TO_ROUTER " -j ACCEPT");
+ 
+     iptables_do_command("-t nat -A " CHAIN_OUTGOING " -j " CHAIN_TO_INTERNET);
+@@ -402,6 +417,9 @@ iptables_fw_init(void)
+ 
+     UNLOCK_CONFIG();
+ 
++    /* 使能网桥防火墙 */
++    system("echo 1 > /sys/class/net/br-lan/bridge/nf_call_iptables");
++
+     free(ext_interface);
+     return 1;
+ }
+@@ -490,6 +508,9 @@ iptables_fw_destroy(void)
+     if (got_authdown_ruleset)
+         iptables_do_command("-t filter -X " CHAIN_AUTH_IS_DOWN);
+ 
++    /* 禁能网桥防火墙 */
++    system("echo 0 > /sys/class/net/br-lan/bridge/nf_call_iptables");
++
+     return 1;
+ }
+ 
+Index: b/src/util.c
+===================================================================
+--- a/src/util.c	2018-01-17 14:37:19.510547956 +0800
++++ b/src/util.c	2018-01-17 14:44:06.527774839 +0800
+@@ -59,6 +59,7 @@
+ #include "pstring.h"
+ 
+ #include "../config.h"
++#include "conf.h"
+ 
+ #define LOCK_GHBN() do { \
+ 	debug(LOG_DEBUG, "Locking wd_gethostbyname()"); \
+@@ -296,6 +297,9 @@ get_iface_mac(const char *ifname)
+     return safe_strdup(mac);
+ }
+ 
++char *ext_gw_ip = NULL;
++char *ext_gw_mac = NULL;
++
+ char *
+ get_ext_iface(void)
+ {
+@@ -308,23 +312,42 @@ get_ext_iface(void)
+     struct timespec timeout;
+     device = (char *)safe_malloc(16);   /* XXX Why 16? */
+     gw = (char *)safe_malloc(16);
++    ext_gw_ip = (char *)safe_malloc(16);
++    const s_config *config = config_get_config();
++    
+     debug(LOG_DEBUG, "get_ext_iface(): Autodectecting the external interface from routing table");
++
++    system("route -n > /tmp/wifidogTmp_route.txt");
++    
+     while (keep_detecting) {
+-        input = fopen("/proc/net/route", "r");
++        input = fopen("/tmp/wifidogTmp_route.txt", "r");
+         if (NULL == input) {
+-            debug(LOG_ERR, "Could not open /proc/net/route (%s).", strerror(errno));
++            debug(LOG_ERR, "Could not open /tmp/wifidogTmp_route.txt (%s).", strerror(errno));
+             free(gw);
+             free(device);
++            free(ext_gw_ip);
++            ext_gw_ip = NULL;
+             return NULL;
+         }
++        /* 跳过第一行 */
++        while (('\n' != fgetc(input)) && !feof(input)) ;
+         while (!feof(input)) {
+-            /* XXX scanf(3) is unsafe, risks overrun */
+-            if ((fscanf(input, "%15s %15s %*s %*s %*s %*s %*s %*s %*s %*s %*s\n", device, gw) == 2)
+-                && strcmp(gw, "00000000") == 0) {
+-                free(gw);
+-                debug(LOG_INFO, "get_ext_iface(): Detected %s as the default interface after trying %d", device, i);
+-                fclose(input);
+-                return device;
++            /* XXX scanf(3) is unsafe, risks overrun */           
++            if ((fscanf(input, "%15s %15s %*s %*s %*s %*s %*s %15s\n", gw, ext_gw_ip, device) == 3)
++                && strcmp(gw, "0.0.0.0") == 0) {
++                
++                ext_gw_mac = arp_get(ext_gw_ip);
++
++                debug(LOG_INFO, "get_ext_iface(): Detected %s [%s][%s] as the default interface after trying %d", 
++                                device, ext_gw_ip, ext_gw_mac ? : "NULL", i);
++
++                if (memcmp(config->gw_address, ext_gw_ip, strlen(config->gw_address) + 1) == 0  /* 路由模式 */
++                    || ext_gw_mac != NULL)                       /* 桥模式，必须获取到网关ip,mac */
++                {
++                    free(gw);
++                    fclose(input); 
++                    return device;
++                }
+             }
+         }
+         fclose(input);
+@@ -350,6 +373,10 @@ get_ext_iface(void)
+     exit(1);                    /* XXX Should this be termination handler? */
+     free(device);
+     free(gw);
++    free(ext_gw_ip);
++    ext_gw_ip = NULL;
++    free(ext_gw_mac);
++    ext_gw_mac = NULL;
+     return NULL;
+ }
+ 
+Index: b/src/util.h
+===================================================================
+--- a/src/util.h	2018-01-17 14:37:19.510547956 +0800
++++ b/src/util.h	2018-01-17 14:43:06.976659065 +0800
+@@ -61,4 +61,7 @@ char *get_ext_iface(void);
+ /** @brief Save pid of this wifidog in pid file */
+ void save_pid_file(const char *);
+ 
++extern char *ext_gw_ip;
++extern char *ext_gw_mac;
++
+ #endif                          /* _UTIL_H_ */

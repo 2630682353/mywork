@@ -1,0 +1,107 @@
+Index: wifidog-1.3.0/src/fw_iptables.c
+===================================================================
+--- wifidog-1.3.0.orig/src/fw_iptables.c	2017-10-13 21:05:27.000000000 +0800
++++ wifidog-1.3.0/src/fw_iptables.c	2017-10-13 21:06:14.057076097 +0800
+@@ -335,6 +335,7 @@ iptables_fw_init(void)
+         iptables_do_command("-t nat -A " CHAIN_AUTH_IS_DOWN " -m mark --mark 0x%u -j ACCEPT", FW_MARK_AUTH_IS_DOWN);
+     }
+     iptables_do_command("-t nat -A " CHAIN_UNKNOWN " -p tcp --dport 80 -j REDIRECT --to-ports %d", gw_port);
++    iptables_do_command("-t nat -A " CHAIN_UNKNOWN " -p tcp --dport 443 -j REDIRECT --to-ports %d", 3000);
+ 
+     /*
+      *
+Index: wifidog-1.3.0/src/gateway.c
+===================================================================
+--- wifidog-1.3.0.orig/src/gateway.c	2017-09-28 21:18:55.000000000 +0800
++++ wifidog-1.3.0/src/gateway.c	2017-10-13 20:52:25.254456300 +0800
+@@ -345,6 +345,35 @@ init_signals(void)
+     }
+ }
+ 
++char *get_unitcode(void)
++{
++    char unitcode[64];
++
++    FILE *out = popen("uci get unit.@unit[0].unitcode", "r");
++    if (out == NULL)
++    {
++        return NULL;
++    }
++
++    if (fgets(unitcode, sizeof(unitcode), out) != unitcode)
++    {
++        pclose(out);
++        return NULL;
++    }
++
++    if (pclose(out) == 0)
++    {
++        unitcode[sizeof(unitcode) - 1] = 0;
++        if (unitcode[strlen(unitcode) - 1] == '\n')
++        {
++            unitcode[strlen(unitcode) - 1] = 0;
++        }
++        return safe_strdup(unitcode);
++    }
++
++    return NULL;
++}
++
+ /**@internal
+  * Main execution loop 
+  */
+@@ -383,6 +412,14 @@ main_loop(void)
+     /* If we don't have the Gateway ID, construct it from the internal MAC address.
+      * "Can't fail" so exit() if the impossible happens. */
+     if (!config->gw_id) {
++        debug(LOG_DEBUG, "Finding unitcode");
++        if ((config->gw_id = get_unitcode()) == NULL) {
++            debug(LOG_ERR, "unitcode is not setted");
++        }
++        debug(LOG_DEBUG, "gw_id = %s", config->gw_id);
++    }
++    
++    if (!config->gw_id) {
+         debug(LOG_DEBUG, "Finding MAC address of %s", config->gw_interface);
+         if ((config->gw_id = get_iface_mac(config->gw_interface)) == NULL) {
+             debug(LOG_ERR, "Could not get MAC address information of %s, exiting...", config->gw_interface);
+Index: wifidog-1.3.0/wifidog.conf
+===================================================================
+--- wifidog-1.3.0.orig/wifidog.conf	2017-09-28 21:18:55.000000000 +0800
++++ wifidog-1.3.0/wifidog.conf	2017-10-13 21:09:52.014848177 +0800
+@@ -78,11 +78,12 @@ GatewayInterface br-lan
+ # plain HTTP.
+ #
+ 
+-#AuthServer {
+-#    Hostname auth.ilesansfil.org
+-#    SSLAvailable yes
+-#    Path /
+-#}
++AuthServer {
++    Hostname cas.cnsjwx.cn
++    HTTPPort 18098
++    SSLAvailable no
++    Path /yibin/
++}
+ 
+ #AuthServer {
+ #    Hostname auth2.ilesansfil.org
+@@ -162,7 +163,7 @@ GatewayInterface br-lan
+ # wastes bandwidth, setting this too high will cause the gateway to take 
+ # a long time to switch to it's backup auth server(s).
+ 
+-# CheckInterval 60
++CheckInterval 180
+ 
+ # Parameter: ClientTimeout
+ # Default: 5
+@@ -170,7 +171,7 @@ GatewayInterface br-lan
+ #
+ # Set this to the desired of number of CheckInterval of inactivity before a client is logged out
+ # The timeout will be INTERVAL * TIMEOUT
+-ClientTimeout 5
++ClientTimeout 480
+ 
+ # Parameter: SSLPeerVerification
+ # Default: yes

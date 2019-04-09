@@ -1,0 +1,105 @@
+@charset "UTF-8";
+.icon
+{
+    background: url("../images/starLittle.png") no-repeat scroll  -30px 0;
+    width: 10px;
+    height: 10px;
+    display: inline-block;
+    background-size: 400% 100%;
+    -webkit-background-size: 400% 100%;
+    margin-right: 3px;
+}
+.icon-yellow
+{
+    background-position: 0 0;
+}
+
+.icon-half-yellow{
+    background-position:  -15px 0;
+}
+
+.star-comment{
+    text-align: center;
+    display: -webkit-box;
+    display: -moz-box;
+}
+
+.star-comment .averageScore{
+    width: 98px;
+    height:108px;
+    /*
+    border: 1px solid #a0a0a0;
+    */
+    background-color: #fff;
+    display: -webkit-box;
+    -webkit-box-align: center;
+    -webkit-box-orient: vertical;
+    display: -moz-box;
+    -moz-box-align: center;
+    -moz-box-orient: vertical;
+}
+
+.star-comment .starTitle{
+    background-color: #a0a0a0;
+    color: #fff;
+    padding: 3px 0;
+    font-size: 1.5rem;
+    width: 100%;
+}
+
+.star-comment .score{
+    font-weight: bold;
+    font-size: 2rem;
+    height: 35px;
+    line-height: 40px;
+}
+
+.star-comment .commentPerNum{
+    font-size: 1.2rem;
+    color: #a0a0a0;
+}
+
+.starStatistics{
+    -webkit-box-flex: 1;
+    height: 110px;
+    margin-left: 10px;
+    color: #777;
+}
+.starStatistics li{
+    -webkit-box-sizing: border-box;
+    box-sizing: border-box;
+    height: 20%;
+    padding-bottom: 3px;
+}
+
+.starStatistics li div,
+.starStatistics li > p{
+    float: left;
+    height: 100%;
+}
+.starStatistics li > p{
+    min-width:20px;
+    width: 18%;
+    text-align: left;
+    font-size: 1.4rem;
+}
+.starStatistics li > div{
+    width: 80%;
+    margin-left: 2%;
+}
+
+
+.starStatistics .starValue{
+    background-color: #00a0e9;
+}
+.starStatistics .starNull{
+    background-color: #e4e4e4;
+}
+
+.starStatistics .percent{
+    position: absolute;
+    right: 14px;
+    z-index: 1;
+    font-size: 1.2rem;
+    margin-top: 1px;
+}

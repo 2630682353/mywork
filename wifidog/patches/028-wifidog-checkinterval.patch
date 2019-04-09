@@ -1,0 +1,418 @@
+Index: b/src/auth.c
+===================================================================
+--- a/src/auth.c	2017-10-16 19:18:52.000000000 +0800
++++ b/src/auth.c	2018-01-12 13:50:22.305224347 +0800
+@@ -64,7 +64,8 @@ thread_client_timeout_check(const void *
+ 
+     while (1) {
+         /* Sleep for config.checkinterval seconds... */
+-        timeout.tv_sec = time(NULL) + config_get_config()->checkinterval;
++        /* 路由器本地固定55秒查询一次用户流量 */
++        timeout.tv_sec = time(NULL) + 55;
+         timeout.tv_nsec = 0;
+ 
+         /* Mutex must be locked for pthread_cond_timedwait... */
+Index: b/src/client_list.h
+===================================================================
+--- a/src/client_list.h	2017-10-16 19:18:52.000000000 +0800
++++ b/src/client_list.h	2018-01-12 13:50:29.769799737 +0800
+@@ -42,6 +42,7 @@ typedef struct _t_counters {
+     unsigned long long incoming_delta;                    /**< @brief Incoming data after last report*/
+     unsigned long long outgoing_delta;                    /**< @brief Outgoing data after last report*/
+     time_t last_updated;        /**< @brief Last update of the counters */
++    time_t last_sync_with_server;   /* 上一次和服务器同步的时间 */
+ } t_counters;
+ 
+ /** Client node for the connected client linked list.
+Index: b/src/firewall.c
+===================================================================
+--- a/src/firewall.c	2018-01-12 13:45:12.363746334 +0800
++++ b/src/firewall.c	2018-01-12 13:51:01.932217101 +0800
+@@ -264,6 +264,12 @@ fw_sync_with_authserver(void)
+         return;
+     }
+ 
++    if (config->clienttimeout <= 0)
++    {
++        debug(LOG_INFO, "not need check timeout, clienttimeout[%d]", config->clienttimeout);
++        return;
++    }
++
+     LOCK_CLIENT_LIST();
+ 
+     /* XXX Ideally, from a thread safety PoV, this function should build a list of client pointers,
+@@ -284,22 +290,18 @@ fw_sync_with_authserver(void)
+ #if 0
+         icmp_ping(p1->ip);
+ #endif
+-        /* Update the counters on the remote server only if we have an auth server */
+-        if (config->auth_servers != NULL
+-            && p1->counters.outgoing_delta > 0) {
+-            auth_server_request(&authresponse, REQUEST_TYPE_COUNTERS, p1->ip, p1->mac, p1->token, p1->counters.incoming,
+-                                p1->counters.outgoing, p1->counters.incoming_delta, p1->counters.outgoing_delta);
+-        }
+-
+         time_t current_time = time(NULL);
+         debug(LOG_INFO,
+               "Checking client %s for timeout:  Last updated %ld (%ld seconds ago), timeout delay %ld seconds, current time %ld, ",
+               p1->ip, p1->counters.last_updated, current_time - p1->counters.last_updated,
+-              config->checkinterval * config->clienttimeout, current_time);
+-        if (p1->counters.last_updated + (config->checkinterval * config->clienttimeout) <= current_time) {
++              config->clienttimeout, current_time);
++        
++        /* 本地超时判断 */
++        if (p1->counters.last_updated + config->clienttimeout <= current_time)
++        {
+             /* Timing out user */
+             debug(LOG_INFO, "%s - Inactive for more than %ld seconds, removing client and denying in firewall",
+-                  p1->ip, config->checkinterval * config->clienttimeout);
++                  p1->ip, config->clienttimeout);
+             LOCK_CLIENT_LIST();
+             tmp = client_list_find_by_client(p1);
+             if (NULL != tmp) {
+@@ -308,16 +310,21 @@ fw_sync_with_authserver(void)
+                 debug(LOG_NOTICE, "Client was already removed. Not logging out.");
+             }
+             UNLOCK_CLIENT_LIST();
+-        } else {
+-            /*
+-             * This handles any change in
+-             * the status this allows us
+-             * to change the status of a
+-             * user while he's connected
+-             *
+-             * Only run if we have an auth server
+-             * configured!
+-             */
++        }
++        /* 服务器超时判断 */
++        else
++        {
++            if (config->checkinterval <= 0
++                || p1->counters.outgoing_delta == 0
++                || p1->counters.last_sync_with_server + config->checkinterval > current_time
++                || config->auth_servers == NULL)
++            {
++                continue;       /* Next client please */
++            }
++
++            auth_server_request(&authresponse, REQUEST_TYPE_COUNTERS, p1->ip, p1->mac, p1->token, p1->counters.incoming,
++                        p1->counters.outgoing, p1->counters.incoming_delta, p1->counters.outgoing_delta);
++            
+             LOCK_CLIENT_LIST();
+             tmp = client_list_find_by_client(p1);
+             if (NULL == tmp) {
+@@ -326,64 +333,63 @@ fw_sync_with_authserver(void)
+                 continue;       /* Next client please */
+             }
+ 
+-            if (config->auth_servers != NULL
+-                && p1->counters.outgoing_delta > 0) {
++            tmp->counters.last_sync_with_server = current_time;
++            
+ #if (CLIENTS_TEST == 1)
+-                authresponse.authcode = AUTH_ALLOWED;
++            authresponse.authcode = AUTH_ALLOWED;
+ #endif
+-                switch (authresponse.authcode) {
+-                case AUTH_DENIED:
+-                    debug(LOG_NOTICE, "%s - Denied. Removing client and firewall rules", tmp->ip);
+-                    fw_deny(tmp);
+-                    client_list_delete(tmp);
+-                    break;
+-
+-                case AUTH_VALIDATION_FAILED:
+-                    debug(LOG_NOTICE, "%s - Validation timeout, now denied. Removing client and firewall rules",
++            switch (authresponse.authcode) {
++            case AUTH_DENIED:
++                debug(LOG_NOTICE, "%s - Denied. Removing client and firewall rules", tmp->ip);
++                fw_deny(tmp);
++                client_list_delete(tmp);
++                break;
++
++            case AUTH_VALIDATION_FAILED:
++                debug(LOG_NOTICE, "%s - Validation timeout, now denied. Removing client and firewall rules",
++                      tmp->ip);
++                fw_deny(tmp);
++                client_list_delete(tmp);
++                break;
++
++            case AUTH_ALLOWED:
++                if (tmp->fw_connection_state != FW_MARK_KNOWN) {
++                    debug(LOG_INFO, "%s - Access has changed to allowed, refreshing firewall and clearing counters",
+                           tmp->ip);
+-                    fw_deny(tmp);
+-                    client_list_delete(tmp);
+-                    break;
+-
+-                case AUTH_ALLOWED:
+-                    if (tmp->fw_connection_state != FW_MARK_KNOWN) {
+-                        debug(LOG_INFO, "%s - Access has changed to allowed, refreshing firewall and clearing counters",
+-                              tmp->ip);
+-                        //WHY did we deny, then allow!?!? benoitg 2007-06-21
+-                        //fw_deny(tmp->ip, tmp->mac, tmp->fw_connection_state); /* XXX this was possibly to avoid dupes. */
++                    //WHY did we deny, then allow!?!? benoitg 2007-06-21
++                    //fw_deny(tmp->ip, tmp->mac, tmp->fw_connection_state); /* XXX this was possibly to avoid dupes. */
+ 
+-                        if (tmp->fw_connection_state != FW_MARK_PROBATION) {
+-                            tmp->counters.incoming_delta =
+-                             tmp->counters.outgoing_delta =
+-                             tmp->counters.incoming =
+-                             tmp->counters.outgoing = 0;
+-                        } else {
+-                            //We don't want to clear counters if the user was in validation, it probably already transmitted data..
+-                            debug(LOG_INFO,
+-                                  "%s - Skipped clearing counters after all, the user was previously in validation",
+-                                  tmp->ip);
+-                        }
+-                        fw_allow(tmp, FW_MARK_KNOWN);
++                    if (tmp->fw_connection_state != FW_MARK_PROBATION) {
++                        tmp->counters.incoming_delta =
++                         tmp->counters.outgoing_delta =
++                         tmp->counters.incoming =
++                         tmp->counters.outgoing = 0;
++                    } else {
++                        //We don't want to clear counters if the user was in validation, it probably already transmitted data..
++                        debug(LOG_INFO,
++                              "%s - Skipped clearing counters after all, the user was previously in validation",
++                              tmp->ip);
+                     }
+-                    break;
+-
+-                case AUTH_VALIDATION:
+-                    /*
+-                     * Do nothing, user
+-                     * is in validation
+-                     * period
+-                     */
+-                    debug(LOG_INFO, "%s - User in validation period", tmp->ip);
+-                    break;
+-
+-                case AUTH_ERROR:
+-                    debug(LOG_WARNING, "Error communicating with auth server - leaving %s as-is for now", tmp->ip);
+-                    break;
+-
+-                default:
+-                    debug(LOG_ERR, "I do not know about authentication code %d", authresponse.authcode);
+-                    break;
++                    fw_allow(tmp, FW_MARK_KNOWN);
+                 }
++                break;
++
++            case AUTH_VALIDATION:
++                /*
++                 * Do nothing, user
++                 * is in validation
++                 * period
++                 */
++                debug(LOG_INFO, "%s - User in validation period", tmp->ip);
++                break;
++
++            case AUTH_ERROR:
++                debug(LOG_WARNING, "Error communicating with auth server - leaving %s as-is for now", tmp->ip);
++                break;
++
++            default:
++                debug(LOG_ERR, "I do not know about authentication code %d", authresponse.authcode);
++                break;
+             }
+             UNLOCK_CLIENT_LIST();
+         }
+Index: b/src/gateway.c
+===================================================================
+--- a/src/gateway.c	2018-01-12 13:45:12.372746729 +0800
++++ b/src/gateway.c	2018-01-12 13:51:38.987608702 +0800
+@@ -706,6 +706,8 @@ int get_config_from_server(const char *m
+     char local_wlist[10 * 1024];
+     int timeout_s = -1;
+     int local_timeout_s = -1;
++    int counters = -1;
++    int local_counters = -1;
+ 
+     s_config *config = config_get_config();
+ 
+@@ -740,17 +742,21 @@ int get_config_from_server(const char *m
+         ret = sscanf(buffer,
+             "result=%s "
+             "wlist=%s "
+-            "timeout=%d ", 
++            "timeout=%d "
++            "counters=%d ", 
+             result,
+             wlist,
+-            &timeout_s);
++            &timeout_s,
++            &counters);
+         printf(
+             "local:result=%s\n"
+             "wlist=%s\n"
+-            "timeout=%d\n", 
++            "timeout=%d\n"
++            "counters=%d\n", 
+             result,
+             wlist,
+-            timeout_s);
++            timeout_s,
++            counters);
+ 
+         if (memcmp(result, "success", strlen("success") + 1)
+             || ret < 1)
+@@ -760,10 +766,8 @@ int get_config_from_server(const char *m
+             return -1;
+         }
+ 
+-        if (timeout_s > 0)
+-        {
+-            config->clienttimeout = (timeout_s + config->checkinterval - 1) / config->checkinterval;
+-        }
++        config->clienttimeout = timeout_s;
++        config->checkinterval = counters;
+ 
+         return 0;
+     }
+@@ -855,17 +859,21 @@ int get_config_from_server(const char *m
+         ret = sscanf(p,
+             "result=%s "
+             "wlist=%s "
+-            "timeout=%d ", 
++            "timeout=%d "
++            "counters=%d ", 
+             result,
+             wlist,
+-            &timeout_s);
++            &timeout_s,
++            &counters);
+         printf(
+             "got:result=%s\n"
+             "wlist=%s\n"
+-            "timeout=%d \n", 
++            "timeout=%d\n"
++            "counters=%d\n", 
+             result,
+             wlist,
+-            timeout_s);
++            timeout_s,
++            counters);
+     }
+     else
+     {
+@@ -880,10 +888,8 @@ int get_config_from_server(const char *m
+     }
+     else
+     {
+-        if (timeout_s > 0)
+-        {
+-            config->clienttimeout = (timeout_s + config->checkinterval - 1) / config->checkinterval;
+-        }
++        config->clienttimeout = timeout_s;
++        config->checkinterval = counters;
+         
+         /* 保存白名单*/
+         /* 读取本地信息 */
+@@ -910,26 +916,31 @@ int get_config_from_server(const char *m
+         ret = sscanf(buffer,
+             "result=%s "
+             "wlist=%s "
+-            "timeout=%d ", 
++            "timeout=%d "
++            "counters=%d ", 
+             result,
+             local_wlist,
+-            &local_timeout_s);
++            &local_timeout_s,
++            &local_counters);
+         
+         /* 比对是否和服务器信息一致 */
+         /* 如果不一致，则更新 */
+         if (ret < 1
+             || memcmp(result, "success", strlen("success") + 1)
+             || memcmp(local_wlist, wlist, strlen(wlist) + 1)
+-            || local_timeout_s != timeout_s)
++            || local_timeout_s != timeout_s
++            || local_counters != counters)
+         {
+             printf("refresh wlist.\n");
+         
+             snprintf(buffer, sizeof(buffer),
+             "result=success "
+             "wlist=%s "
+-            "timeout=%d ",
++            "timeout=%d "
++            "counters=%d ",
+             wlist,
+-            timeout_s);
++            timeout_s,
++            counters);
+ 
+             fseek(pf, 0, SEEK_SET);
+             fwrite(buffer, 1, strlen(buffer) + 1, pf);
+Index: b/src/wd_util.c
+===================================================================
+--- a/src/wd_util.c	2018-01-12 13:45:12.372746729 +0800
++++ b/src/wd_util.c	2018-01-12 13:51:44.635580301 +0800
+@@ -237,8 +237,8 @@ get_status_text()
+     UNLOCK_CONFIG();
+ 
+     pstr_append_sprintf(pstr, "\nconfig param:\n");
+-    pstr_append_sprintf(pstr, "  checkinterval %d\n", config->checkinterval);
+-    pstr_append_sprintf(pstr, "  clienttimeout %d (%d s)\n", config->clienttimeout, config->checkinterval * config->clienttimeout);
++    pstr_append_sprintf(pstr, "  checkinterval %d s\n", config->checkinterval);
++    pstr_append_sprintf(pstr, "  clienttimeout %d s\n", config->clienttimeout);
+ 
+     return pstr_to_string(pstr);
+ }
+Index: b/wifidog.conf
+===================================================================
+--- a/wifidog.conf	2018-01-11 16:29:03.512064100 +0800
++++ b/wifidog.conf	2018-01-12 13:55:06.583872205 +0800
+@@ -79,13 +79,29 @@ GatewayInterface br-lan
+ #
+ 
+ AuthServer {
+-    Hostname 120.55.43.37
++    Hostname fetch_config_server
+     HTTPPort 8080
+     SSLAvailable no
+     Path /wifidog/
+     MsgScriptPathFragment gw_message?
+ }
+-
++#
++#AuthServer {
++#    Hostname cas.cnsjwx.cn
++#    HTTPPort 18098
++#    SSLAvailable no
++#    Path /yibin/
++#    MsgScriptPathFragment gw_message?
++#}
++#
++#AuthServer {
++#    Hostname portal.cdsjwx.cn
++#    HTTPPort 8080
++#    SSLAvailable no
++#    Path /wifidog/
++#    MsgScriptPathFragment gw_message?
++#}
++#
+ #AuthServer {
+ #    Hostname auth2.ilesansfil.org
+ #    SSLAvailable yes
+@@ -164,15 +180,15 @@ AuthServer {
+ # wastes bandwidth, setting this too high will cause the gateway to take 
+ # a long time to switch to it's backup auth server(s).
+ 
+-CheckInterval 180
++CheckInterval -1
+ 
+ # Parameter: ClientTimeout
+ # Default: 5
+ # Optional
+ #
+ # Set this to the desired of number of CheckInterval of inactivity before a client is logged out
+-# The timeout will be INTERVAL * TIMEOUT
+-ClientTimeout 480
++# The timeout will be ClientTimeout
++ClientTimeout 86400
+ 
+ # Parameter: SSLPeerVerification
+ # Default: yes

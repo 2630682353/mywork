@@ -1,0 +1,6 @@
+while true
+do
+sshpass -p 123456 scp -P 11112 /dev/shm/win7.rar root@192.168.88.8:/dev/shm/win7.rar.tmp
+sshpass -p 123456 scp -P 11112 root@192.168.88.8:/dev/shm/win7.rar /dev/shm/win7.rar.tmp
+echo "one loop"
+done

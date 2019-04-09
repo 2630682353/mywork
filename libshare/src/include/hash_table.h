@@ -16,9 +16,10 @@ typedef struct kv
 /* HashTable */
 typedef struct HashTable
 {
+	int size;
     struct kv ** table;
 }HashTable;
-	extern HashTable* hash_table_new();
+	extern HashTable* hash_table_new(int tables_size);
 	extern void hash_table_delete(HashTable* ht);
 
 	#define hash_table_put(ht,key,value) hash_table_put2(ht,key,value,NULL);

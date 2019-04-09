@@ -1,0 +1,165 @@
+Index: b/src/gateway.c
+===================================================================
+--- a/src/gateway.c	2017-11-11 10:37:13.198508562 +0800
++++ b/src/gateway.c	2017-11-11 10:41:10.175557393 +0800
+@@ -414,6 +414,7 @@ static void thread_lockTest(void *arg)
+         pthread_mutex_lock(&mutex);\
+         pthread_mutex_unlock(&mutex);
+ 
++        TEST_MUTEX_LOCK(httpdconn_mutex);
+         TEST_MUTEX_LOCK(client_id_mutex);
+         TEST_MUTEX_LOCK(client_list_mutex);
+         TEST_MUTEX_LOCK(config_mutex);
+@@ -624,24 +625,12 @@ main_loop(void)
+             *params = webserver;
+             *(params + 1) = r;
+ 
+-            pthread_mutex_lock(&httpdconn_mutex);
+-            if (httpdconn < config->httpdmaxconn)
+-            {
+-                httpdconn++;
+-                pthread_mutex_unlock(&httpdconn_mutex);
+-                
+-                result = pthread_create(&tid, NULL, (void *)thread_httpd, (void *)params);
+-                if (result != 0) {
+-                    debug(LOG_ERR, "FATAL: Failed to create a new thread (httpd) - exiting");
+-                    termination_handler(0);
+-                }
+-                pthread_detach(tid);
+-            }
+-            else
+-            {
+-                pthread_mutex_unlock(&httpdconn_mutex);
+-                httpdEndRequest(r);
++            result = pthread_create(&tid, NULL, (void *)thread_httpd, (void *)params);
++            if (result != 0) {
++                debug(LOG_ERR, "FATAL: Failed to create a new thread (httpd) - exiting");
++                termination_handler(0);
+             }
++            pthread_detach(tid);
+         } else {
+             /* webserver->lastError should be 2 */
+             /* XXX We failed an ACL.... No handling because
+Index: b/src/http.c
+===================================================================
+--- a/src/http.c	2017-10-15 04:24:37.000000000 +0800
++++ b/src/http.c	2017-11-11 10:41:28.189861513 +0800
+@@ -57,6 +57,8 @@
+ 
+ #include "../config.h"
+ 
++int httpdconn = 0;
++pthread_mutex_t httpdconn_mutex = PTHREAD_MUTEX_INITIALIZER;
+ 
+ /** The 404 handler is also responsible for redirecting to the auth server */
+ void
+@@ -256,6 +258,7 @@ http_callback_auth(httpd * webserver, re
+     httpVar *token;
+     char *mac;
+     httpVar *logout = httpdGetVariableByName(r, "logout");
++    s_config *config = config_get_config();
+ 
+     if ((token = httpdGetVariableByName(r, "token"))) {
+         /* They supplied variable "token" */
+@@ -264,22 +267,40 @@ http_callback_auth(httpd * webserver, re
+             debug(LOG_ERR, "Failed to retrieve MAC address for ip %s", r->clientAddr);
+             send_http_page(r, "WiFiDog Error", "Failed to retrieve your MAC address");
+         } else {
+-            /* We have their MAC address */
+-            LOCK_CLIENT_LIST();
++            pthread_mutex_lock(&httpdconn_mutex);
++            if (httpdconn < config->httpdmaxconn)
++            {
++                httpdconn++;
++                pthread_mutex_unlock(&httpdconn_mutex);
++                
++                /* We have their MAC address */
++                LOCK_CLIENT_LIST();
++
++                if ((client = client_list_find(r->clientAddr, mac)) == NULL) {
++                    debug(LOG_DEBUG, "New client for %s", r->clientAddr);
++                    client_list_add(r->clientAddr, mac, token->value);
++                } else if (logout) {
++                    logout_client(client);
++                } else {
++                    debug(LOG_DEBUG, "Client for %s is already in the client list", client->ip);
++                }
+ 
+-            if ((client = client_list_find(r->clientAddr, mac)) == NULL) {
+-                debug(LOG_DEBUG, "New client for %s", r->clientAddr);
+-                client_list_add(r->clientAddr, mac, token->value);
+-            } else if (logout) {
+-                logout_client(client);
+-            } else {
+-                debug(LOG_DEBUG, "Client for %s is already in the client list", client->ip);
+-            }
++                UNLOCK_CLIENT_LIST();
++                if (!logout) { /* applies for case 1 and 3 from above if */
++                    authenticate_client(r);
++                }
+ 
+-            UNLOCK_CLIENT_LIST();
+-            if (!logout) { /* applies for case 1 and 3 from above if */
+-                authenticate_client(r);
++                pthread_mutex_lock(&httpdconn_mutex);
++                httpdconn--;
++                pthread_mutex_unlock(&httpdconn_mutex);
++            }
++            else
++            {
++                pthread_mutex_unlock(&httpdconn_mutex);
++                debug(LOG_DEBUG, "Busy for client %s", r->clientAddr);
++                send_http_page(r, "WiFiDog Busy", "retry again");
+             }
++            
+             free(mac);
+         }
+     } else {
+Index: b/src/http.h
+===================================================================
+--- a/src/http.h	2017-10-15 04:24:37.000000000 +0800
++++ b/src/http.h	2017-11-11 10:41:32.723339163 +0800
+@@ -49,4 +49,8 @@ void send_http_page(request *, const cha
+ void http_send_redirect(request *, const char *, const char *);
+ /** @brief Convenience function to redirect the web browser to the authe server */
+ void http_send_redirect_to_auth(request *, const char *, const char *);
++
++extern int httpdconn;
++extern pthread_mutex_t httpdconn_mutex;
++
+ #endif /* _HTTP_H_ */
+Index: b/src/httpd_thread.c
+===================================================================
+--- a/src/httpd_thread.c	2017-11-11 10:37:13.166507922 +0800
++++ b/src/httpd_thread.c	2017-11-11 10:41:41.222124467 +0800
+@@ -43,9 +43,6 @@
+ #include "debug.h"
+ #include "httpd_thread.h"
+ 
+-int httpdconn = 0;
+-pthread_mutex_t httpdconn_mutex = PTHREAD_MUTEX_INITIALIZER;
+-
+ /** Main request handling thread.
+ @param args Two item array of void-cast pointers to the httpd and request struct
+ */
+@@ -75,8 +72,4 @@ thread_httpd(void *args)
+ 	}
+ 	debug(LOG_DEBUG, "Closing connection with %s", r->clientAddr);
+ 	httpdEndRequest(r);
+-    
+-    pthread_mutex_lock(&httpdconn_mutex);
+-    httpdconn--;
+-    pthread_mutex_unlock(&httpdconn_mutex);
+ }
+Index: b/src/httpd_thread.h
+===================================================================
+--- a/src/httpd_thread.h	2017-11-11 10:37:13.166507922 +0800
++++ b/src/httpd_thread.h	2017-11-11 10:41:46.271827686 +0800
+@@ -30,7 +30,4 @@
+ /** @brief Handle a web request */
+ void thread_httpd(void *args);
+ 
+-extern int httpdconn;
+-extern pthread_mutex_t httpdconn_mutex;
+-
+ #endif

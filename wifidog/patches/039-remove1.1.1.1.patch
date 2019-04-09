@@ -1,0 +1,55 @@
+Index: b/src/fw_iptables.c
+===================================================================
+--- a/src/fw_iptables.c	2018-04-02 15:28:49.372931994 +0800
++++ b/src/fw_iptables.c	2018-04-02 15:30:58.568443253 +0800
+@@ -457,9 +457,9 @@ ebtables_fw_init(void)
+     }
+     ebtables_do_command("-t nat -A " CHAIN_UNKNOWN " -p ipv4 --ip-proto tcp --ip-dport 80 -j redirect --redirect-target ACCEPT");
+     ebtables_do_command("-t nat -A " CHAIN_UNKNOWN " -p ipv4 --ip-proto tcp --ip-dport 443 -j redirect --redirect-target ACCEPT");
+-    /* 将1.1.1.1:2060端口重定向到本地2060交由wifidog处理 */
+-    ebtables_do_command("-t nat -A " CHAIN_UNKNOWN " -p ipv4 --ip-dst 1.1.1.1 --ip-proto tcp --ip-dport 2060 -j redirect --redirect-target ACCEPT");
+-
++    /* 网桥模式，可能处于多网段。所以将2060端口重定向到本地2060交由wifidog处理 */
++    ebtables_do_command("-t nat -A " CHAIN_UNKNOWN " -p ipv4 --ip-proto tcp --ip-dport 2060 -j redirect --redirect-target ACCEPT");
++    
+     /*
+      *
+      * Everything in the FILTER table
+@@ -633,8 +633,6 @@ iptables_fw_init(void)
+     }
+     iptables_do_command("-t nat -A " CHAIN_UNKNOWN " -p tcp --dport 80 -j REDIRECT --to-ports %d", gw_port);
+     iptables_do_command("-t nat -A " CHAIN_UNKNOWN " -p tcp --dport 443 -j REDIRECT --to-ports %d", 3000);
+-    /* 将1.1.1.1:2060端口重定向到本地2060交由wifidog处理 */
+-    iptables_do_command("-t nat -A " CHAIN_UNKNOWN " -d 1.1.1.1 -p tcp --dport 2060 -j REDIRECT --to-ports %d", 2060);
+ 
+     /*
+      *
+Index: b/src/http.c
+===================================================================
+--- a/src/http.c	2018-04-02 15:28:49.300929845 +0800
++++ b/src/http.c	2018-04-02 15:31:13.150425037 +0800
+@@ -108,22 +108,18 @@ http_callback_404(httpd * webserver, req
+         /* Re-direct them to auth server */
+         char *urlFragment;
+ 
+-        /* gw_address 使用1.1.1.1，当认证通过后，portal链接将使用该ip 
+-         * 同时使用iptables将1.1.1.1:2060端口重定向到本地2060交由wifidog处理
+-         * 这样做的目的是为了应对桥模式下的多个网段场景，各个网段都可以使用1.1.1.1
+-         */
+         if (!(mac = arp_get(r->clientAddr))) {
+             /* We could not get their MAC address */
+             debug(LOG_INFO, "Failed to retrieve MAC address for ip %s, so not putting in the login request",
+                   r->clientAddr);
+             safe_asprintf(&urlFragment, "%sgw_address=%s&gw_port=%d&gw_id=%s&ip=%s&url=%s",
+-                          auth_server->authserv_login_script_path_fragment, "1.1.1.1"/*config->gw_address*/, config->gw_port,
++                          auth_server->authserv_login_script_path_fragment, config->gw_address, config->gw_port,
+                           config->gw_id, r->clientAddr, url);
+         } else {
+             debug(LOG_INFO, "Got client MAC address for ip %s: %s", r->clientAddr, mac);
+             safe_asprintf(&urlFragment, "%sgw_address=%s&gw_port=%d&gw_id=%s&ip=%s&mac=%s&url=%s",
+                           auth_server->authserv_login_script_path_fragment,
+-                          "1.1.1.1"/*config->gw_address*/, config->gw_port, config->gw_id, r->clientAddr, mac, url);
++                          config->gw_address, config->gw_port, config->gw_id, r->clientAddr, mac, url);
+             free(mac);
+         }
+ 

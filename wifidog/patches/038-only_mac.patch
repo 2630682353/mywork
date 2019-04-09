@@ -1,0 +1,194 @@
+Index: b/src/fw_iptables.c
+===================================================================
+--- a/src/fw_iptables.c	2018-03-13 17:09:38.156601451 +0800
++++ b/src/fw_iptables.c	2018-03-13 17:11:31.435189825 +0800
+@@ -1018,30 +1018,31 @@ iptables_fw_access(fw_access_t type, con
+ #if 0
+         iptables_do_command("-t mangle -I " CHAIN_OUTGOING " -s %s -m mac --mac-source %s -j MARK --set-mark %d", ip,
+                             mac, tag);
+-#endif
+-        iptables_do_command("-t mangle -I " CHAIN_OUTGOING " -s %s -m mac --mac-source %s -j " CHAIN_MARK_ACCEPT, ip, mac);
+         rc = iptables_do_command("-t mangle -I " CHAIN_INCOMING " -d %s -j ACCEPT", ip);
++#else
++        rc = iptables_do_command("-t mangle -I " CHAIN_OUTGOING " -m mac --mac-source %s -j " CHAIN_MARK_ACCEPT, mac);
++#endif
+ 
+         /* 桥模式 */
+         if (isBridge) {
+-            ebtables_do_command("-t broute -I " CHAIN_OUTGOING " -p ipv4 --ip-src %s -s %s -j mark --set-mark %d", ip, mac, tag);
+-            ebtables_do_command("-t nat -I " CHAIN_INCOMING " -p ipv4 --ip-dst %s -j ACCEPT", ip);
++            ebtables_do_command("-t broute -I " CHAIN_OUTGOING " -p ipv4 -s %s -j mark --set-mark %d", mac, tag);
++            //ebtables_do_command("-t nat -I " CHAIN_INCOMING " -p ipv4 --ip-dst %s -j ACCEPT", ip);
+         }
+         
+         break;
+     case FW_ACCESS_DENY:
+-        /* XXX Add looping to really clear? */
+ #if 0
+         iptables_do_command("-t mangle -D " CHAIN_OUTGOING " -s %s -m mac --mac-source %s -j MARK --set-mark %d", ip,
+                             mac, tag);
+-#endif
+-        iptables_do_command("-t mangle -D " CHAIN_OUTGOING " -s %s -m mac --mac-source %s -j " CHAIN_MARK_ACCEPT, ip, mac);
+         rc = iptables_do_command("-t mangle -D " CHAIN_INCOMING " -d %s -j ACCEPT", ip);
++#else
++        rc = iptables_do_command("-t mangle -D " CHAIN_OUTGOING " -m mac --mac-source %s -j " CHAIN_MARK_ACCEPT, mac);
++#endif
+ 
+         /* 桥模式 */
+         if (isBridge) {
+-            ebtables_do_command("-t broute -D " CHAIN_OUTGOING " -p ipv4 --ip-src %s -s %s -j mark --set-mark %d", ip, mac, tag);
+-            ebtables_do_command("-t nat -D " CHAIN_INCOMING " -p ipv4 --ip-dst %s -j ACCEPT", ip);
++            ebtables_do_command("-t broute -D " CHAIN_OUTGOING " -p ipv4 -s %s -j mark --set-mark %d", mac, tag);
++            //ebtables_do_command("-t nat -D " CHAIN_INCOMING " -p ipv4 --ip-dst %s -j ACCEPT", ip);
+         }
+         break;
+     default:
+@@ -1162,6 +1163,7 @@ iptables_fw_counters_update(void)
+ {
+     FILE *output;
+     char *script, ip[16], rc;
++    char mac[32];
+     unsigned long long int counter;
+     t_client *p1;
+     struct in_addr tempaddr;
+@@ -1181,22 +1183,31 @@ iptables_fw_counters_update(void)
+     while (('\n' != fgetc(output)) && !feof(output)) ;
+     while (('\n' != fgetc(output)) && !feof(output)) ;
+     while (output && !(feof(output))) {
+-        rc = fscanf(output, "%*s %llu %*s %*s %*s %*s %*s %15[0-9.] %*s %*s %*s %*s %*s %*s", &counter, ip);
+-        //rc = fscanf(output, "%*s %llu %*s %*s %*s %*s %*s %15[0-9.] %*s %*s %*s %*s %*s 0x%*u", &counter, ip);
++        rc = fscanf(output, "%*s %llu %*s %*s %*s %*s %*s %*s %*s %*s %s", &counter, mac);
+         if (2 == rc && EOF != rc) {
+-            /* Sanity */
+-            if (!inet_aton(ip, &tempaddr)) {
+-                debug(LOG_WARNING, "I was supposed to read an IP address but instead got [%s] - ignoring it", ip);
++            if (strlen(mac) != 17
++            || mac[2] != ':'
++            || mac[5] != ':'
++            || mac[8] != ':'
++            || mac[11] != ':'
++            || mac[14] != ':')
++            {
++                debug(LOG_WARNING, "bad mac [%s]", mac);
+                 continue;
+             }
+-            debug(LOG_DEBUG, "Read outgoing traffic for %s: Bytes=%llu", ip, counter);
++
++            int i = 0;
++            for(i = 0; i < sizeof(mac) - 1; i++)
++                mac[i] = tolower(mac[i]);
++            
++            debug(LOG_DEBUG, "Read outgoing traffic for %s: Bytes=%llu", mac, counter);
+             LOCK_CLIENT_LIST();
+-            if ((p1 = client_list_find_by_ip(ip))) {
++            if ((p1 = client_list_find_by_mac(mac))) {
+                 if ((p1->counters.outgoing - p1->counters.outgoing_history) < counter) {
+                     p1->counters.outgoing_delta = p1->counters.outgoing_history + counter - p1->counters.outgoing;
+                     p1->counters.outgoing = p1->counters.outgoing_history + counter;
+                     p1->counters.last_updated = time(NULL);
+-                    debug(LOG_DEBUG, "%s - Outgoing traffic %llu bytes, updated counter.outgoing to %llu bytes.  Updated last_updated to %d", ip,
++                    debug(LOG_DEBUG, "%s - Outgoing traffic %llu bytes, updated counter.outgoing to %llu bytes.  Updated last_updated to %d", mac,
+                           counter, p1->counters.outgoing, p1->counters.last_updated);
+                 }
+                 else
+@@ -1206,17 +1217,18 @@ iptables_fw_counters_update(void)
+             } else {
+                 debug(LOG_ERR,
+                       "iptables_fw_counters_update(): Could not find %s in client list, this should not happen unless if the gateway crashed",
+-                      ip);
+-                debug(LOG_ERR, "Preventively deleting firewall rules for %s in table %s", ip, CHAIN_OUTGOING);
+-                iptables_fw_destroy_mention("mangle", CHAIN_OUTGOING, ip);
+-                debug(LOG_ERR, "Preventively deleting firewall rules for %s in table %s", ip, CHAIN_INCOMING);
+-                iptables_fw_destroy_mention("mangle", CHAIN_INCOMING, ip);
++                      mac);
++                debug(LOG_ERR, "Preventively deleting firewall rules for %s in table %s", mac, CHAIN_OUTGOING);
++                iptables_fw_destroy_mention("mangle", CHAIN_OUTGOING, mac);
++                debug(LOG_ERR, "Preventively deleting firewall rules for %s in table %s", mac, CHAIN_INCOMING);
++                iptables_fw_destroy_mention("mangle", CHAIN_INCOMING, mac);
+             }
+             UNLOCK_CLIENT_LIST();
+         }
+     }
+     fclose(output);
+ 
++#if 0
+     /* Look for incoming traffic */
+     safe_asprintf(&script, "%s %s %s", "iptables", iptables_w, "-v -n -x -t mangle -L " CHAIN_INCOMING " > /tmp/wifidogTmp_in.txt");
+     iptables_insert_gateway_id(&script);
+@@ -1260,7 +1272,7 @@ iptables_fw_counters_update(void)
+         }
+     }
+     fclose(output);
+-
++#endif
+     return iptables_fw_trust_update();
+ }
+ 
+@@ -1319,6 +1331,7 @@ ebtables_fw_counters_update(void)
+ {
+     FILE *output;
+     char *script, ip[16], rc;
++    char mac[32];
+     unsigned long long int counter;
+     t_client *p1;
+     struct in_addr tempaddr;
+@@ -1339,16 +1352,22 @@ ebtables_fw_counters_update(void)
+     while (('\n' != fgetc(output)) && !feof(output)) ;
+     while (('\n' != fgetc(output)) && !feof(output)) ;
+     while (output && !(feof(output))) {
+-        rc = fscanf(output, "%*s %*s %*s %*s %*s %15[0-9.] %*s %*s %*s %*s %*s %*s %*s %*s %*s %*s %*s %*s %llu", ip, &counter);
++        rc = fscanf(output, "%*s %*s %*s %s %*s %*s %*s %*s %*s %*s %*s %*s %*s %*s %*s %*s %llu", mac, &counter);
+         if (2 == rc && EOF != rc) {
+-            /* Sanity */
+-            if (!inet_aton(ip, &tempaddr)) {
+-                debug(LOG_WARNING, "I was supposed to read an IP address but instead got [%s] - ignoring it", ip);
++            if (strlen(mac) != 17
++            || mac[2] != ':'
++            || mac[5] != ':'
++            || mac[8] != ':'
++            || mac[11] != ':'
++            || mac[14] != ':')
++            {
++                debug(LOG_WARNING, "bad mac [%s]", mac);
+                 continue;
+             }
+-            debug(LOG_DEBUG, "Read outgoing traffic for %s: Bytes=%llu", ip, counter);
++            
++            debug(LOG_DEBUG, "Read outgoing traffic for %s: Bytes=%llu", mac, counter);
+             LOCK_CLIENT_LIST();
+-            if ((p1 = client_list_find_by_ip(ip))) {
++            if ((p1 = client_list_find_by_mac(mac))) {
+                 if ((p1->counters.outgoing - p1->counters.outgoing_history) < counter) {
+                     p1->counters.outgoing_delta = p1->counters.outgoing_history + counter - p1->counters.outgoing;
+                     p1->counters.outgoing = p1->counters.outgoing_history + counter;
+@@ -1363,17 +1382,17 @@ ebtables_fw_counters_update(void)
+             } else {
+                 debug(LOG_ERR,
+                       "ebtables_fw_counters_update(): Could not find %s in client list, this should not happen unless if the gateway crashed",
+-                      ip);
+-                debug(LOG_ERR, "Preventively deleting firewall rules for %s in table %s", ip, CHAIN_OUTGOING);
++                      mac);
++                debug(LOG_ERR, "Preventively deleting firewall rules for %s in table %s", mac, CHAIN_OUTGOING);
+                 //iptables_fw_destroy_mention("mangle", CHAIN_OUTGOING, ip);
+-                debug(LOG_ERR, "Preventively deleting firewall rules for %s in table %s", ip, CHAIN_INCOMING);
++                debug(LOG_ERR, "Preventively deleting firewall rules for %s in table %s", mac, CHAIN_INCOMING);
+                 //iptables_fw_destroy_mention("mangle", CHAIN_INCOMING, ip);
+             }
+             UNLOCK_CLIENT_LIST();
+         }
+     }
+     fclose(output);
+-
++#if 0
+     /* Look for incoming traffic */
+     safe_asprintf(&script, "ebtables -t nat -L " CHAIN_INCOMING " --Lmac2 --Lc > /tmp/wifidogTmp_in.txt");
+     iptables_insert_gateway_id(&script);
+@@ -1418,7 +1437,7 @@ ebtables_fw_counters_update(void)
+         }
+     }
+     fclose(output);
+-    
++#endif
+     return ebtables_fw_trust_update();
+ }
+ 

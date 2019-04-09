@@ -12,5 +12,5 @@ config client_ip
 	option upload '300'
 
 config qos_base 'qos_base'
-	option enable '1'
+	option enable '0'
 

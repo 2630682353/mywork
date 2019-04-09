@@ -1,0 +1,119 @@
+@charset "UTF-8";
+/*灰色底色 内容为白色底色 存在边距 绿色按钮 无导航*/
+
+/*灰色底色继续继承pub.css中的样式*/
+
+.container{
+    padding: 0px 8px;
+    margin: 5px;
+    background-color: #fff;
+}
+
+.container .ui-header-content{
+    color: #333;
+    background-color: #FFFFFF;
+}
+.ui-header-content span{
+    text-align: center;
+    padding-right: 20px;
+}
+.ui-header-content i{
+    font-size: 1.4rem;
+}
+
+.ui-btn-primary,.ui-btn-group-bottom .ui-btn-primary{
+    background-color: #5fa531;
+    background-image: -webkit-gradient(linear,left top,left bottom,color-stop(0.5,#5fa531),to(#5fa531));
+    color: #fff;
+    border-color: #5fa531;
+}
+.ui-btn-primary:not(.disabled):not(:disabled):active,.ui-btn-group-bottom .ui-btn-primary:not(.disabled):not(:disabled):active{
+    background-color: #518c28;
+    background-image: -webkit-gradient(linear,left top,left bottom,color-stop(0.5,#518c28),to(#518c28));
+    color: #fff;
+    border-color: #518c28;
+}
+@media screen and (-webkit-min-device-pixel-ratio: 2){
+    .ui-btn:before, .ui-btn-lg:before, .ui-btn-s:before{
+        border-width: 0;
+    }
+
+    .ui-btn.ui-border:before{
+        border-width: 1px;
+    }
+}
+
+.container .colorful-Font{
+    color: #518c28;
+}
+
+.container .colorful-Bg{
+    background-color: #518c28;
+}
+.container .colorful-Bd{
+    border-color: #518c28;
+}
+
+@media screen and (-webkit-min-device-pixel-ratio: 2){
+    .colorful-Bd:before {
+        border-color: #518c28;
+    }
+}
+.ui-content h5{
+    color: #969696;
+}
+.ui-content span{
+
+}
+
+
+/*footer*/
+.ui-btn-group-bottom{
+    display: -webkit-box;
+    display: -moz-box;
+    display: box;
+
+}
+
+.ui-btn-group-bottom .ui-btn-primary{
+    font-size: 1.5rem;
+    height: 45px;
+    line-height: 45px;
+    padding: 0px 20px;
+}
+
+.ui-btn-group-bottom .ui-btn-shopping{
+    height: 45px;
+    -webkit-box-flex: 1;
+    -moz-box-flex: 1;
+    box-flex:1;
+    padding-left: 10px;
+    font-size: 1.5rem;
+    display: -webkit-box;
+    display: -moz-box;
+    display: box;
+    -webkit-box-align: center;
+    -moz-box-align: center;
+    box-align: center;
+}
+.ui-btn-shopping img{
+    height: 30px;
+    width: 40px;
+    vertical-align: middle;
+}
+/*end*/
+
+/*加减部件*/
+.counter{
+    display: inline-block;
+}
+.counter input{
+    width: 25px;
+    text-align: center;
+}
+.counter .iconfont{
+    font-size: 2rem;
+    margin-top: 4px;
+    padding: 10px 5px;
+}
+/*end*/

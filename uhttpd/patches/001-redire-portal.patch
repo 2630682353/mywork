@@ -1,0 +1,120 @@
+diff -uNr uhttpd-2014-10-27/client.c a/client.c
+--- uhttpd-2014-10-27/client.c	2016-05-09 10:04:35.000000000 +0800
++++ a/client.c	2018-09-18 09:40:38.000000000 +0800
+@@ -49,6 +49,9 @@
+ 	const char *conn;
+ 
+ 	cl->http_code = code;
++	if (cl->srv_addr.port == htons(4001) || cl->srv_addr.port == htons(4002)) {
++		r->connection_close = TRUE;
++	}
+ 
+ 	if (!uh_use_chunked(cl))
+ 		enc = "";
+diff -uNr uhttpd-2014-10-27/CMakeLists.txt a/CMakeLists.txt
+--- uhttpd-2014-10-27/CMakeLists.txt	2016-05-09 10:04:35.000000000 +0800
++++ a/CMakeLists.txt	2018-09-27 11:35:55.000000000 +0800
+@@ -5,7 +5,7 @@
+ INCLUDE (CheckFunctionExists)
+ 
+ SET(CMAKE_SHARED_LIBRARY_LINK_C_FLAGS "")
+-ADD_DEFINITIONS(-Os -Wall -Werror -Wmissing-declarations --std=gnu99 -g3)
++ADD_DEFINITIONS(-Os -Wall -Wmissing-declarations --std=gnu99 -g3)
+ 
+ OPTION(TLS_SUPPORT "TLS support" ON)
+ OPTION(LUA_SUPPORT "Lua support" ON)
+diff -uNr uhttpd-2014-10-27/file.c a/file.c
+--- uhttpd-2014-10-27/file.c	2016-05-09 10:04:35.000000000 +0800
++++ a/file.c	2018-10-16 08:55:30.000000000 +0800
+@@ -26,6 +26,7 @@
+ #include <time.h>
+ #include <strings.h>
+ #include <dirent.h>
++#include <arpa/inet.h>
+ 
+ #include <libubox/blobmsg.h>
+ 
+@@ -121,6 +122,23 @@
+ 	return path_resolved;
+ }
+ 
++int shell_printf(char *cmd, char *dst, int dlen)
++{
++	FILE *fp;
++	int rlen;
++
++	if (!cmd || !dst|| dlen <= 1)
++		return -1;
++	if ((fp = popen(cmd, "r")) == NULL)
++		return -1;
++	rlen = fread(dst, sizeof(char), dlen - 1, fp);
++//	dst[dlen-1] = 0;
++	dst[rlen] = 0;
++
++	pclose(fp);
++	return rlen;
++}
++
+ /* Returns NULL on error.
+ ** NB: improperly encoded URL should give client 400 [Bad Syntax]; returning
+ ** NULL here causes 404 [Not Found], but that's not too unreasonable. */
+@@ -146,6 +164,7 @@
+ 		return NULL;
+ 
+ 	memset(&p, 0, sizeof(p));
++
+ 	path_phys[0] = 0;
+ 	path_info[0] = 0;
+ 
+@@ -333,6 +352,7 @@
+ 		ustream_printf(cl->us, "Last-Modified: %s\r\n",
+ 			       uh_file_unix2date(s->st_mtime, buf, sizeof(buf)));
+ 	}
++
+ 	ustream_printf(cl->us, "Date: %s\r\n",
+ 		       uh_file_unix2date(time(NULL), buf, sizeof(buf)));
+ }
+@@ -576,12 +596,22 @@
+ 	/* write status */
+ 	uh_file_response_200(cl, &pi->stat);
+ 
+-	ustream_printf(cl->us, "Content-Type: %s\r\n",
+-			   uh_file_mime_lookup(pi->name));
++	
+ 
+-	ustream_printf(cl->us, "Content-Length: %i\r\n\r\n",
+-			   pi->stat.st_size);
++	
+ 
++	char buf[128];
++	if (cl->srv_addr.port == htons(4001) || cl->srv_addr.port == htons(4002)) {
++		ustream_printf(cl->us, "Content-Type: %s\r\n",
++			   uh_file_mime_lookup(pi->name));
++		ustream_printf(cl->us, "Expires: %s\r\n",
++		       uh_file_unix2date(time(NULL) - 3600*24*365, buf, sizeof(buf)));
++		ustream_printf(cl->us, "Cache-Control: no-store, no-cache, must-revalidate\r\n");
++		ustream_printf(cl->us, "Pragma: no-cache\r\n\r\n");
++	} else {
++		ustream_printf(cl->us, "Content-Type: %s\r\n\r\n",
++			   uh_file_mime_lookup(pi->name));
++	}
+ 
+ 	/* send body */
+ 	if (cl->request.method == UH_HTTP_MSG_HEAD) {
+@@ -814,9 +844,15 @@
+ {
+ 	struct http_request *req = &cl->request;
+ 	struct dispatch_handler *d;
+-	char *url = blobmsg_data(blob_data(cl->hdr.head));
++	char *url = NULL;
+ 	char *error_handler;
+ 
++	if (cl->srv_addr.port == htons(4001) || cl->srv_addr.port == htons(4002)) {
++		url="/portal/portal_redirect.html";
++	} else {
++		url = blobmsg_data(blob_data(cl->hdr.head));
++	}
++
+ 	req->redirect_status = 200;
+ 	d = dispatch_find(url, NULL);
+ 	if (d)

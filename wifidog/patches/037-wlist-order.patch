@@ -1,0 +1,326 @@
+Index: b/src/fw_iptables.c
+===================================================================
+--- a/src/fw_iptables.c	2018-03-06 17:03:31.962784235 +0800
++++ b/src/fw_iptables.c	2018-03-06 17:06:51.405339749 +0800
+@@ -399,23 +399,24 @@ ebtables_fw_init(void)
+         ebtables_do_command("-t broute -N " CHAIN_AUTH_IS_DOWN " -P RETURN ");
+ 
+     /* Assign links and rules to these new chains */
+-    ebtables_do_command("-t broute -I BROUTING 1 -j " CHAIN_OUTGOING);
+     ebtables_do_command("-t broute -I BROUTING 1 -j " CHAIN_TRUSTED);     //this rule will be inserted before the prior one
++    ebtables_do_command("-t broute -I BROUTING 1 -j " CHAIN_OUTGOING);
+     if (got_authdown_ruleset)
+         ebtables_do_command("-t broute -I BROUTING 1 -j " CHAIN_AUTH_IS_DOWN);    //this rule must be last in the chain
+ 
+-    for (p = config->trustedmaclist; p != NULL; p = p->next)
+-        ebtables_do_command("-t broute -A " CHAIN_TRUSTED " -s %s -j mark --mark-set %d", p->mac,
+-                            FW_MARK_KNOWN);
++    /* 桥模式下，局域网内部允许访问网关 */
++    ebtables_do_command("-t broute -I BROUTING -p ipv4 --ip-dst %s -j mark --set-mark %d", 
++                        ext_gw_ip, FW_MARK_KNOWN);
+ 
+     /* 桥模式的网关不是设备本身 ，网关需要放行才能上桥*/
+     ebtables_do_command("-t broute -A " CHAIN_TRUSTED " -s %s -j mark --mark-set %d", ext_gw_mac,
+                             FW_MARK_KNOWN);
+ 
+-    /* 桥模式下，局域网内部允许访问网关 */
+-    ebtables_do_command("-t broute -A " CHAIN_TRUSTED " -p ipv4 --ip-dst %s -j mark --set-mark %d", 
+-                        ext_gw_ip, FW_MARK_KNOWN);
+-
++    /* 白名单 */
++    for (p = config->trustedmaclist; p != NULL; p = p->next)
++        ebtables_do_command("-t broute -A " CHAIN_TRUSTED " -s %s -j mark --mark-set %d", p->mac,
++                            FW_MARK_KNOWN);
++    
+     /*
+      *
+      * Everything in the NAT table
+@@ -564,16 +565,27 @@ iptables_fw_init(void)
+     if (got_authdown_ruleset)
+         iptables_do_command("-t mangle -N " CHAIN_AUTH_IS_DOWN);
+ 
++    iptables_do_command("-t mangle -N " CHAIN_MARK_ACCEPT);
++
+     /* Assign links and rules to these new chains */
+-    iptables_do_command("-t mangle -I PREROUTING 1 -i %s -j " CHAIN_OUTGOING, config->gw_interface);
+     iptables_do_command("-t mangle -I PREROUTING 1 -i %s -j " CHAIN_TRUSTED, config->gw_interface);     //this rule will be inserted before the prior one
++    iptables_do_command("-t mangle -I PREROUTING 1 -i %s -j " CHAIN_OUTGOING, config->gw_interface);
+     if (got_authdown_ruleset)
+         iptables_do_command("-t mangle -I PREROUTING 1 -i %s -j " CHAIN_AUTH_IS_DOWN, config->gw_interface);    //this rule must be last in the chain
+     iptables_do_command("-t mangle -I POSTROUTING 1 -o %s -j " CHAIN_INCOMING, config->gw_interface);
+ 
++#if 0
+     for (p = config->trustedmaclist; p != NULL; p = p->next)
+         iptables_do_command("-t mangle -A " CHAIN_TRUSTED " -m mac --mac-source %s -j MARK --set-mark %d", p->mac,
+                             FW_MARK_KNOWN);
++#endif
++
++    for (p = config->trustedmaclist; p != NULL; p = p->next)
++        iptables_do_command("-t mangle -A " CHAIN_TRUSTED " -m mac --mac-source %s -j " CHAIN_MARK_ACCEPT, p->mac);
++
++    /* 匹配之后打完标记就返回，避免每个数据包都遍历所有规则 */
++    iptables_do_command("-t mangle -A " CHAIN_MARK_ACCEPT " -j MARK --set-mark %d", FW_MARK_KNOWN);
++    iptables_do_command("-t mangle -A " CHAIN_MARK_ACCEPT " -j ACCEPT");
+ 
+     /*
+      *
+@@ -734,11 +746,14 @@ iptables_fw_destroy(void)
+     if (got_authdown_ruleset)
+         iptables_do_command("-t mangle -F " CHAIN_AUTH_IS_DOWN);
+     iptables_do_command("-t mangle -F " CHAIN_INCOMING);
++    iptables_do_command("-t mangle -F " CHAIN_MARK_ACCEPT);
++    
+     iptables_do_command("-t mangle -X " CHAIN_TRUSTED);
+     iptables_do_command("-t mangle -X " CHAIN_OUTGOING);
+     if (got_authdown_ruleset)
+         iptables_do_command("-t mangle -X " CHAIN_AUTH_IS_DOWN);
+     iptables_do_command("-t mangle -X " CHAIN_INCOMING);
++    iptables_do_command("-t mangle -X " CHAIN_MARK_ACCEPT);
+ 
+     /*
+      *
+@@ -1000,21 +1015,27 @@ iptables_fw_access(fw_access_t type, con
+ 
+     switch (type) {
+     case FW_ACCESS_ALLOW:
+-        iptables_do_command("-t mangle -A " CHAIN_OUTGOING " -s %s -m mac --mac-source %s -j MARK --set-mark %d", ip,
++#if 0
++        iptables_do_command("-t mangle -I " CHAIN_OUTGOING " -s %s -m mac --mac-source %s -j MARK --set-mark %d", ip,
+                             mac, tag);
+-        rc = iptables_do_command("-t mangle -A " CHAIN_INCOMING " -d %s -j ACCEPT", ip);
++#endif
++        iptables_do_command("-t mangle -I " CHAIN_OUTGOING " -s %s -m mac --mac-source %s -j " CHAIN_MARK_ACCEPT, ip, mac);
++        rc = iptables_do_command("-t mangle -I " CHAIN_INCOMING " -d %s -j ACCEPT", ip);
+ 
+         /* 桥模式 */
+         if (isBridge) {
+-            ebtables_do_command("-t broute -A " CHAIN_OUTGOING " -p ipv4 --ip-src %s -s %s -j mark --set-mark %d", ip, mac, tag);
+-            ebtables_do_command("-t nat -A " CHAIN_INCOMING " -p ipv4 --ip-dst %s -j ACCEPT", ip);
++            ebtables_do_command("-t broute -I " CHAIN_OUTGOING " -p ipv4 --ip-src %s -s %s -j mark --set-mark %d", ip, mac, tag);
++            ebtables_do_command("-t nat -I " CHAIN_INCOMING " -p ipv4 --ip-dst %s -j ACCEPT", ip);
+         }
+         
+         break;
+     case FW_ACCESS_DENY:
+         /* XXX Add looping to really clear? */
++#if 0
+         iptables_do_command("-t mangle -D " CHAIN_OUTGOING " -s %s -m mac --mac-source %s -j MARK --set-mark %d", ip,
+                             mac, tag);
++#endif
++        iptables_do_command("-t mangle -D " CHAIN_OUTGOING " -s %s -m mac --mac-source %s -j " CHAIN_MARK_ACCEPT, ip, mac);
+         rc = iptables_do_command("-t mangle -D " CHAIN_INCOMING " -d %s -j ACCEPT", ip);
+ 
+         /* 桥模式 */
+@@ -1088,6 +1109,53 @@ iptables_fw_auth_reachable(void)
+         return 1;
+ }
+ 
++/* 调整白名单顺序，将有效mac排在最前面 */
++int iptables_fw_trust_update(void)
++{
++    FILE *output;
++    char *script, mac[18], rc;
++    unsigned long long int counter;
++    int find_0 = 0;
++
++    /* Look for trust traffic */
++    safe_asprintf(&script, "%s %s %s", "iptables", iptables_w, "-v -n -x -t mangle -L " CHAIN_TRUSTED " > /tmp/wifidogTmp_trust.txt");
++    iptables_insert_gateway_id(&script);
++    system(script);
++    output = fopen("/tmp/wifidogTmp_trust.txt", "r");
++    free(script);
++    if (!output) {
++        debug(LOG_ERR, "fopen(): %s", strerror(errno));
++        return -1;
++    }
++
++    /* skip the first 2 lines */
++    while (('\n' != fgetc(output)) && !feof(output)) ;
++    while (('\n' != fgetc(output)) && !feof(output)) ;
++    while (output && !(feof(output))) {
++        rc = fscanf(output, "%*s %llu %*s %*s %*s %*s %*s %*s %*s %*s %s", &counter, mac);
++        if (2 == rc && EOF != rc) {
++            debug(LOG_DEBUG, "Read trust traffic for %s: Bytes=%llu", mac, counter);
++        }
++
++        /* 发现0流量规则 */
++        if (counter == 0) {
++            find_0 = 1;
++        }
++
++        /* 有流量的规则，搬移到前面 */
++        if (counter != 0 && find_0) {
++            debug(LOG_DEBUG, "move trust mac forward %s: Bytes=%llu", mac, counter);
++            
++            iptables_do_command("-t mangle -D " CHAIN_TRUSTED " -m mac --mac-source %s -j " CHAIN_MARK_ACCEPT, mac);
++
++            iptables_do_command("-t mangle -I " CHAIN_TRUSTED " -m mac --mac-source %s -j " CHAIN_MARK_ACCEPT, mac);
++        }
++    }
++    fclose(output);
++
++    return 1;
++}
++
+ /** Update the counters of all the clients in the client list */
+ int
+ iptables_fw_counters_update(void)
+@@ -1193,6 +1261,56 @@ iptables_fw_counters_update(void)
+     }
+     fclose(output);
+ 
++    return iptables_fw_trust_update();
++}
++
++/* 调整白名单顺序，将有效mac排在最前面 */
++int ebtables_fw_trust_update(void)
++{
++    FILE *output;
++    char *script, mac[18], rc;
++    unsigned long long int counter;
++    int find_0 = 0;
++
++    /* Look for trust traffic */
++    safe_asprintf(&script, "ebtables -t broute -L " CHAIN_TRUSTED " --Lmac2 --Lc > /tmp/wifidogTmp_trust.txt");
++    iptables_insert_gateway_id(&script);
++    system(script);
++    output = fopen("/tmp/wifidogTmp_trust.txt", "r");
++    free(script);
++    if (!output) {
++        debug(LOG_ERR, "fopen(): %s", strerror(errno));
++        return -1;
++    }
++
++    /* skip the first 3 lines */
++    while (('\n' != fgetc(output)) && !feof(output)) ;
++    while (('\n' != fgetc(output)) && !feof(output)) ;
++    while (('\n' != fgetc(output)) && !feof(output)) ;
++    while (output && !(feof(output))) {
++        rc = fscanf(output, "%*s %s %*s %*s %*s %*s %*s %*s %*s %*s %*s %*s %*s %*s %llu", mac, &counter);
++        if (2 == rc && EOF != rc) {
++            debug(LOG_DEBUG, "Read trust traffic for %s: Bytes=%llu", mac, counter);
++        }
++
++        /* 发现0流量规则 */
++        if (counter == 0) {
++            find_0 = 1;
++        }
++
++        /* 有流量的规则，搬移到前面 */
++        if (counter != 0 && find_0) {
++            debug(LOG_DEBUG, "move trust mac forward %s: Bytes=%llu", mac, counter);
++            
++            ebtables_do_command("-t broute -D " CHAIN_TRUSTED " -s %s -j mark --mark-set %d", mac,
++                            FW_MARK_KNOWN);
++            
++            ebtables_do_command("-t broute -I " CHAIN_TRUSTED " -s %s -j mark --mark-set %d", mac,
++                            FW_MARK_KNOWN);
++        }
++    }
++    fclose(output);
++
+     return 1;
+ }
+ 
+@@ -1301,6 +1419,6 @@ ebtables_fw_counters_update(void)
+     }
+     fclose(output);
+     
+-    return 1;
++    return ebtables_fw_trust_update();
+ }
+ 
+Index: b/src/fw_iptables.h
+===================================================================
+--- a/src/fw_iptables.h	2018-03-06 17:03:31.957783857 +0800
++++ b/src/fw_iptables.h	2018-03-06 17:06:57.406765495 +0800
+@@ -44,6 +44,7 @@
+ #define CHAIN_LOCKED    "WiFiDog_$ID$_Locked"
+ #define CHAIN_TRUSTED    "WiFiDog_$ID$_Trusted"
+ #define CHAIN_AUTH_IS_DOWN "WiFiDog_$ID$_AuthIsDown"
++#define CHAIN_MARK_ACCEPT  "WiFiDog_Mark_Accept"
+ /*@}*/
+ 
+ /** Used by iptables_fw_access to select if the client should be granted of denied access */
+Index: b/src/gateway.c
+===================================================================
+--- a/src/gateway.c	2018-03-06 17:03:31.955783706 +0800
++++ b/src/gateway.c	2018-03-06 17:08:51.920894653 +0800
+@@ -713,6 +713,68 @@ int fetch_config_server(const char *mac)
+     }
+ }
+ 
++void decode_http_chunk(char *buffer_in, int *buffer_size)
++{
++    int chunked = 0;
++    int i = 0;
++    char buffer_out[10 * 1024];
++
++    /* 在http头搜索关键字chunked */
++    while (buffer_in[i] != 0 && i < *buffer_size) {
++        if ((i + sizeof("chunked") - 1) <= *buffer_size && memcmp(buffer_in + i, "chunked", sizeof("chunked") - 1) == 0)
++            chunked = 1;
++
++        if ((i + sizeof("\r\n\r\n") - 1) <= *buffer_size && memcmp(buffer_in + i, "\r\n\r\n", sizeof("\r\n\r\n") - 1) == 0) {
++            i += 4; // 指向http内容
++            break;
++        }
++
++        i++;
++    }
++
++    if (chunked == 0)
++        return;
++
++    int chunk_size = 0;
++    int total_size = 0;
++
++    while (buffer_in[i] != 0) {
++        /* size */
++        sscanf(buffer_in + i, "%x", &chunk_size);
++        if (chunk_size == 0)
++            break;
++        /* \r\n */
++        while (buffer_in[i] != 0) {
++            if ((i + sizeof("\r\n") - 1) <= *buffer_size && memcmp(buffer_in + i, "\r\n", sizeof("\r\n") - 1) == 0) {
++                i += 2; // 指向chunk内容
++                break;
++            }
++
++            i++;
++        }
++
++        /* data */
++        if (total_size + chunk_size > sizeof(buffer_out) - 1)
++            break;
++        memcpy(buffer_out + total_size, buffer_in + i, chunk_size);
++        i += chunk_size;
++        total_size += chunk_size;
++        /* \r\n */
++        while (buffer_in[i] != 0) {
++            if ((i + sizeof("\r\n") - 1) <= *buffer_size && memcmp(buffer_in + i, "\r\n", sizeof("\r\n") - 1) == 0) {
++                i += 2; // 指向chunk内容
++                break;
++            }
++
++            i++;
++        }
++    }
++
++    memcpy(buffer_in, buffer_out, total_size);
++    buffer_in[total_size] = 0;
++    *buffer_size = total_size;
++}
++
+ /* 通过mac地址，去服务器查询配置信息 */
+ int get_config_from_server(const char *mac)
+ {
+@@ -893,6 +955,8 @@ int get_config_from_server(const char *m
+     if (pos > 100)
+     {
+         const char *p = buffer;
++        /* 解析http chunk编码 */
++        decode_http_chunk(buffer, &pos);
+         while (memcmp(p, "result=", strlen("result=")) 
+             && (p < buffer + pos - strlen("result=")))
+         {

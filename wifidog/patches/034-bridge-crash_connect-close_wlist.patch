@@ -1,0 +1,57 @@
+Index: b/src/conf.c
+===================================================================
+--- a/src/conf.c	2018-02-16 01:47:41.025430534 +0800
++++ b/src/conf.c	2018-02-16 01:48:51.094815159 +0800
+@@ -732,11 +732,9 @@ config_read(const char *filename)
+                 case oFirewallRuleSet:
+                     parse_firewall_ruleset(p1, fd, filename, &linenum);
+                     break;
+-#if 0
+                 case oTrustedMACList:
+                     parse_trusted_mac_list(p1);
+                     break;
+-#endif
+                 case oPopularServers:
+                     parse_popular_servers(rawarg);
+                     break;
+Index: b/src/fw_iptables.c
+===================================================================
+--- a/src/fw_iptables.c	2018-02-16 01:47:41.072432851 +0800
++++ b/src/fw_iptables.c	2018-02-16 01:49:17.379132810 +0800
+@@ -308,7 +308,12 @@ iptables_fw_init(void)
+                             ext_gw_ip, FW_MARK_KNOWN);
+ 
+         /* 使能网桥防火墙 */
+-        system("echo 1 > /sys/class/net/br-lan/bridge/nf_call_iptables");
++        /* 实测dhcp使用的端口67,68在广播的时候会被拦截。所以这里单独处理 */
++        system("ebtables -t broute -A BROUTING -p ipv4 --ip-dst 255.255.255.255 -j ACCEPT");
++        
++        system("ebtables -t broute -A BROUTING -p ipv4 --ip-proto tcp -j redirect --redirect-target ACCEPT");
++        system("ebtables -t broute -A BROUTING -p ipv4 --ip-proto udp -j redirect --redirect-target ACCEPT");
++        system("ebtables -t broute -A BROUTING -p ipv4 --ip-proto icmp -j redirect --redirect-target ACCEPT");
+     }
+ 
+     /*
+@@ -511,8 +516,8 @@ iptables_fw_destroy(void)
+     if (got_authdown_ruleset)
+         iptables_do_command("-t filter -X " CHAIN_AUTH_IS_DOWN);
+ 
+-    /* 禁能网桥防火墙 */
+-    system("echo 0 > /sys/class/net/br-lan/bridge/nf_call_iptables");
++    /* 禁能网桥防火墙 */    
++    system("ebtables -t broute -F");
+ 
+     return 1;
+ }
+Index: b/src/gateway.c
+===================================================================
+--- a/src/gateway.c	2018-02-16 01:47:41.072432851 +0800
++++ b/src/gateway.c	2018-02-16 01:49:26.188599852 +0800
+@@ -814,6 +814,7 @@ int get_config_from_server(const char *m
+ 	snprintf(buffer, sizeof(buffer) - 1,
+     	"GET %s HTTP/1.1\r\n"
+     	"Host: %s:%d\r\n"
++    	"Connection: close\r\n"
+     	"Content-Type: text/html\r\n\r\n",
+     	url, host, port);
+ 

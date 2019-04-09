@@ -1,0 +1,493 @@
+Index: b/src/gateway.c
+===================================================================
+--- a/src/gateway.c	2017-12-25 17:36:07.633180648 +0800
++++ b/src/gateway.c	2017-12-25 17:37:31.115400252 +0800
+@@ -381,14 +381,308 @@ char *get_local_wlist(void)
+     return NULL;
+ }
+ 
++/* 通过配置服务器获取认证服务器信息 */
++int fetch_config_server(const char *mac)
++{
++    /* 尝试100次，如果失败，则使用本地保存的信息 */
++    static int retry = 100;
++    char authserv_hostname[128];
++    int authserv_http_port;
++    char authserv_path[128];
++
++    int ret = -1;
++    char buffer[10 * 1024];
++    int needSend = 0;
++    char url[128];
++    char result[32];
++
++    memset(result, 0, sizeof(result));
++
++    if (mac == NULL)
++    {
++        return -2;
++    }
++
++    debug(LOG_ERR, "fetch_config_server retry[%d].\n", retry);
++
++    if (retry-- <= 0)
++    {
++        retry = 100;
++        /* 尝试100次，如果失败，则使用本地保存的信息 */
++        FILE *pf = fopen("/etc/config/portal.conf", "r");
++        if (pf == NULL)
++        {
++            debug(LOG_ERR, "open /etc/config/portal.conf failed.\n");
++            return -1;
++        }
++
++        ret = fread(buffer, 1, sizeof(buffer), pf);
++        if (ret < 0)
++        {
++            debug(LOG_ERR, "read /etc/config/portal.conf failed.\n");
++            fclose(pf);
++            return -1;
++        }
++
++        ret = sscanf(buffer,
++            "result=%s "
++            "Hostname=%s "
++            "HTTPPort=%d "
++            "Path=%s",
++            result,
++            authserv_hostname,
++            &authserv_http_port,
++            authserv_path);
++
++        printf(
++            "local:result=%s "
++            "Hostname=%s "
++            "HTTPPort=%d "
++            "Path=%s\n",
++            result,
++            authserv_hostname,
++            authserv_http_port,
++            authserv_path);
++
++        if (memcmp(result, "success", strlen("success") + 1)
++            || ret != 4)
++        {
++            debug(LOG_ERR, "fetch_config_server local failed.\n");
++            fclose(pf);
++            return -1;
++        }
++
++        if (config_get_config()->auth_servers[0].authserv_hostname != NULL)
++        {
++            free(config_get_config()->auth_servers[0].authserv_hostname);
++        }
++        if (config_get_config()->auth_servers[0].authserv_path != NULL)
++        {
++            free(config_get_config()->auth_servers[0].authserv_path);
++        }
++        
++        config_get_config()->auth_servers[0].authserv_hostname = safe_strdup(authserv_hostname);
++        config_get_config()->auth_servers[0].authserv_http_port = authserv_http_port;
++        config_get_config()->auth_servers[0].authserv_path = safe_strdup(authserv_path);
++
++        fclose(pf);
++        return 0;
++    }
++    
++#if 1
++    const char *host = "config.cdsjwx.cn";
++    int port = 8080;
++    snprintf(url, sizeof(url) - 1, "/api/portal_conf.php?mac=%s", mac);
++#else
++    const char *host = "127.0.0.1";
++    int port = 80;
++    snprintf(url, sizeof(url) - 1, "/portal_server.html");
++#endif
++
++    struct hostent *remoteHost = gethostbyname(host);
++
++    if (remoteHost == NULL)
++    {
++        debug(LOG_ERR, "get host ip failed.\n");
++        return -1;
++    }
++
++	snprintf(buffer, sizeof(buffer) - 1,
++    	"GET %s HTTP/1.1\r\n"
++    	"Host: %s:%d\r\n"
++    	"Content-Type: text/html\r\n\r\n",
++    	url, host, port);
++
++    needSend = strlen(buffer);
++
++    int sock_cli = socket(AF_INET,SOCK_STREAM, 0);
++    
++    struct sockaddr_in servaddr;
++    memset(&servaddr, 0, sizeof(servaddr));
++    servaddr.sin_family = AF_INET;
++    servaddr.sin_port = htons(port);
++    servaddr.sin_addr.s_addr = *(u_long *) remoteHost->h_addr_list[0];
++
++    if (connect(sock_cli, (struct sockaddr *)&servaddr, sizeof(servaddr)) < 0)
++    {
++        debug(LOG_ERR, " CenterHost:%s:%d connect error\n",host,port);	 
++        return -1;
++    }
++
++    int pos=0;
++    int len=0;
++    /* 发送 */
++    while (pos < needSend)
++    {
++        if((needSend - pos) > 2048)
++        {
++            len = send(sock_cli, buffer + pos, 2048, 0);
++        }
++        else
++        {
++            len = send(sock_cli, buffer + pos, needSend - pos, 0);
++        }
++        
++        if(len <= 0)
++        {
++            debug(LOG_ERR, "Send ERRPR!\n");
++            break;
++        }
++        pos += len;
++    }
++
++    /* 接收 */
++    pos = 0;
++    len = 0;
++    do{
++        len = recv(sock_cli, buffer + pos, sizeof(buffer) - pos - 1, 0);
++        pos += len;
++    }while((len > 0) && (pos < sizeof(buffer) - 1));
++    buffer[pos] = 0;
++    
++    close(sock_cli);
++
++    printf("buffer pos[%d]\n[%s]\n", pos, buffer);
++
++    if (pos > 100)
++    {
++        const char *p = buffer;
++        while (memcmp(p, "result=", strlen("result=")) 
++            && (p < buffer + pos - strlen("result=")))
++        {
++            p++;
++        }
++    
++        ret = sscanf(p,
++            "result=%s "
++            "Hostname=%s "
++            "HTTPPort=%d "
++            "Path=%s",
++            result,
++            authserv_hostname,
++            &authserv_http_port,
++            authserv_path);
++        printf(
++            "got:result=%s "
++            "Hostname=%s "
++            "HTTPPort=%d "
++            "Path=%s\n",
++            result,
++            authserv_hostname,
++            authserv_http_port,
++            authserv_path);
++    }
++    else
++    {
++        debug(LOG_ERR, "invalid len[%d]\n[%s]\n", pos, buffer);
++    }
++
++    if (memcmp(result, "success", strlen("success") + 1)
++        || ret != 4)
++    {
++        debug(LOG_ERR, "fetch_config_server content error.\n");
++        return -1;
++    }
++    else
++    {
++        /* 从配置服务器成功获取到认证服务器信息 */
++        if (config_get_config()->auth_servers[0].authserv_hostname != NULL)
++        {
++            free(config_get_config()->auth_servers[0].authserv_hostname);
++        }
++        if (config_get_config()->auth_servers[0].authserv_path != NULL)
++        {
++            free(config_get_config()->auth_servers[0].authserv_path);
++        }
++        
++        config_get_config()->auth_servers[0].authserv_hostname = safe_strdup(authserv_hostname);
++        config_get_config()->auth_servers[0].authserv_http_port = authserv_http_port;
++        config_get_config()->auth_servers[0].authserv_path = safe_strdup(authserv_path);
++    
++        /* 保存认证服务器信息 */
++        /* 读取本地信息 */
++        FILE *pf = fopen("/etc/config/portal.conf", "rb+");
++        if (pf == NULL)
++        {
++            debug(LOG_ERR, "open /etc/config/portal.conf failed.\n");
++            return 0;
++        }
++
++        fseek(pf, 0, SEEK_SET);
++        memset(buffer, 0 ,sizeof(buffer));
++        ret = fread(buffer, 1, sizeof(buffer), pf);
++        if (ret < 0)
++        {
++            debug(LOG_ERR, "read /etc/config/portal.conf failed.\n");
++            fclose(pf);
++            return 0;
++        }
++        buffer[sizeof(buffer) - 1] = 0;
++
++        printf("buffer:[%s].\n", buffer);
++
++        ret = sscanf(buffer,
++            "result=%s "
++            "Hostname=%s "
++            "HTTPPort=%d "
++            "Path=%s",
++            result,
++            authserv_hostname,
++            &authserv_http_port,
++            authserv_path);
++
++        printf(
++            "ret = %d,local:result=%s \n"
++            "Hostname=%s \n"
++            "HTTPPort=%d \n"
++            "Path=%s\n",
++            ret,
++            result,
++            authserv_hostname,
++            authserv_http_port,
++            authserv_path);
++        
++        /* 比对是否和服务器信息一致 */
++        /* 如果不一致，则更新 */
++        if (ret != 4
++            || memcmp(result, "success", strlen("success") + 1)
++            || memcmp(authserv_hostname, config_get_config()->auth_servers[0].authserv_hostname, strlen(config_get_config()->auth_servers[0].authserv_hostname) + 1)
++            || (authserv_http_port != config_get_config()->auth_servers[0].authserv_http_port)
++            || memcmp(authserv_path, config_get_config()->auth_servers[0].authserv_path, strlen(config_get_config()->auth_servers[0].authserv_path) + 1))
++        {
++            printf("refresh server info.\n");
++        
++            snprintf(buffer, sizeof(buffer),
++            "result=success "
++            "Hostname=%s "
++            "HTTPPort=%d "
++            "Path=%s",
++            config_get_config()->auth_servers[0].authserv_hostname,
++            config_get_config()->auth_servers[0].authserv_http_port,
++            config_get_config()->auth_servers[0].authserv_path);
++
++            fseek(pf, 0, SEEK_SET);
++            fwrite(buffer, 1, strlen(buffer) + 1, pf);
++            fflush(pf);
++        }
++
++        fclose(pf);
++        return 0;
++    }
++}
++
+ /* 通过mac地址，去服务器查询配置信息 */
+ int get_config_from_server(const char *mac)
+ {
++    /* 尝试100次，如果失败，则使用本地保存的信息 */
++    static int retry = 100;
++
+     int ret = -1;
+     char buffer[10 * 1024];
+     int needSend = 0;
+     char url[128];
+     char result[32];
++    char local_wlist[10 * 1024];
+ 
+     memset(result, 0, sizeof(result));
+ 
+@@ -396,6 +690,50 @@ int get_config_from_server(const char *m
+     {
+         return -2;
+     }
++
++    debug(LOG_ERR, "get_config_from_server retry[%d].\n", retry);
++    
++    if (retry-- <= 0)
++    {
++        retry = 100;
++        /* 尝试100次，如果失败，则使用本地保存的信息 */
++        FILE *pf = fopen("/etc/config/whiteList", "r");
++        if (pf == NULL)
++        {
++            debug(LOG_ERR, "open /etc/config/whiteList failed.\n");
++            return -1;
++        }
++
++        ret = fread(buffer, 1, sizeof(buffer), pf);
++        if (ret < 0)
++        {
++            debug(LOG_ERR, "read /etc/config/whiteList failed.\n");
++            fclose(pf);
++            return -1;
++        }
++
++        ret = sscanf(buffer,
++            "result=%s "
++            "wlist=%s ", 
++            result,
++            wlist);
++        printf(
++            "local:result=%s\n"
++            "wlist=%s\n", 
++            result,
++            wlist);
++
++        if (memcmp(result, "success", strlen("success") + 1)
++            || ret < 1)
++        {
++            debug(LOG_ERR, "get_config_from_server local failed.\n");
++            fclose(pf);
++            return -1;
++        }
++
++        fclose(pf);
++        return 0;
++    }
+     
+ #if 1
+     const char *host = config_get_config()->auth_servers[0].authserv_hostname;
+@@ -411,7 +749,7 @@ int get_config_from_server(const char *m
+ 
+     if (remoteHost == NULL)
+     {
+-        printf("get host ip failed.\n");
++        debug(LOG_ERR, "get host ip failed.\n");
+         return -1;
+     }
+ 
+@@ -433,7 +771,7 @@ int get_config_from_server(const char *m
+ 
+     if (connect(sock_cli, (struct sockaddr *)&servaddr, sizeof(servaddr)) < 0)
+     {
+-        printf(" CenterHost:%s:%d connect error\n",host,port);	 
++        debug(LOG_ERR, " CenterHost:%s:%d connect error\n",host,port);	 
+         return -1;
+     }
+ 
+@@ -453,7 +791,7 @@ int get_config_from_server(const char *m
+         
+         if(len <= 0)
+         {
+-            printf("Send ERRPR!\n");
++            debug(LOG_ERR, "Send ERRPR!\n");
+             break;
+         }
+         pos += len;
+@@ -494,15 +832,64 @@ int get_config_from_server(const char *m
+     }
+     else
+     {
+-        printf("invalid len[%d]\n[%s]\n", pos, buffer);
++        debug(LOG_ERR, "invalid len[%d]\n[%s]\n", pos, buffer);
+     }
+ 
+-    if (memcmp(result, "success", strlen("success")))
++    if (memcmp(result, "success", strlen("success") + 1)
++        || ret < 1)
+     {
++        debug(LOG_ERR, "get_config_from_server content error.\n");
+         return -1;
+     }
+     else
+     {
++        /* 保存白名单*/
++        /* 读取本地信息 */
++        FILE *pf = fopen("/etc/config/whiteList", "rb+");
++        if (pf == NULL)
++        {
++            debug(LOG_ERR, "open /etc/config/whiteList failed.\n");
++            return 0;
++        }
++
++        fseek(pf, 0, SEEK_SET);
++        memset(buffer, 0 ,sizeof(buffer));
++        ret = fread(buffer, 1, sizeof(buffer), pf);
++        if (ret < 0)
++        {
++            debug(LOG_ERR, "read /etc/config/whiteList failed.\n");
++            fclose(pf);
++            return 0;
++        }
++        buffer[sizeof(buffer) - 1] = 0;
++
++        printf("buffer:[%s].\n", buffer);
++
++        ret = sscanf(buffer,
++            "result=%s "
++            "wlist=%s ", 
++            result,
++            local_wlist);
++        
++        /* 比对是否和服务器信息一致 */
++        /* 如果不一致，则更新 */
++        if (ret < 1
++            || memcmp(result, "success", strlen("success") + 1)
++            || memcmp(local_wlist, wlist, strlen(wlist) + 1))
++        {
++            printf("refresh wlist.\n");
++        
++            snprintf(buffer, sizeof(buffer),
++            "result=success "
++            "wlist=%s ",
++            wlist);
++
++            fseek(pf, 0, SEEK_SET);
++            fwrite(buffer, 1, strlen(buffer) + 1, pf);
++            fflush(pf);
++        }
++
++        fclose(pf);
+         return 0;
+     }
+ }
+@@ -590,6 +977,7 @@ static void thread_lockCheck(void *arg)
+         if (timeStamp.tv_sec + 300 < now)
+         {
+             debug(LOG_ERR, "lockTest fail, auto exit.[%d][%d]", timeStamp.tv_sec, now);
++            termination_handler(0);
+             exit(1);
+         }
+     }
+@@ -636,7 +1024,7 @@ void wait_net_time_sync(void)
+             return;
+         }
+ 
+-        printf("wait_net_time_sync failed.\n");
++        debug(LOG_ERR, "wait_net_time_sync failed.\n");
+         sleep(1);
+     }
+ }
+@@ -687,6 +1075,17 @@ main_loop(void)
+         debug(LOG_DEBUG, "%s = %s", config->gw_interface, config->gw_id);
+     }
+ 
++    /* 从配置服务器获取认证服务器信息 */
++    do{
++        result = fetch_config_server(config->gw_id);
++        if (result != 0)
++        {
++            debug(LOG_ERR, "!!!fetch_config_server failed[%d].\n", result);
++            sleep(5);
++        }
++    }while(result != 0);
++
++    /* 从认证服务器获取白名单 */
+     do{
+         result = get_config_from_server(config->gw_id);
+         if (result != 0)

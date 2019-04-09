@@ -1,0 +1,13 @@
+Index: b/src/util.c
+===================================================================
+--- a/src/util.c	2017-10-17 10:49:21.643577254 +0800
++++ b/src/util.c	2017-10-17 10:52:23.186935382 +0800
+@@ -174,7 +174,7 @@ get_iface_ip(const char *ifname)
+     u_int32_t ip;
+ 
+     /* Create a socket */
+-    if ((sockd = socket(AF_INET, SOCK_RAW, htons(0x8086))) < 0) {
++    if ((sockd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+         debug(LOG_ERR, "socket(): %s", strerror(errno));
+         return NULL;
+     }

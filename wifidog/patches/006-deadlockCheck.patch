@@ -1,0 +1,170 @@
+Index: b/src/client_list.c
+===================================================================
+--- a/src/client_list.c	2017-11-01 11:53:11.674662408 -0400
++++ b/src/client_list.c	2017-11-01 11:53:34.570457728 -0400
+@@ -55,7 +55,7 @@ static volatile unsigned long long clien
+ /**
+  * Mutex to protect client_id and guarantee uniqueness.
+  */
+-static pthread_mutex_t client_id_mutex = PTHREAD_MUTEX_INITIALIZER;
++pthread_mutex_t client_id_mutex = PTHREAD_MUTEX_INITIALIZER;
+ 
+ /** Global mutex to protect access to the client list */
+ pthread_mutex_t client_list_mutex = PTHREAD_MUTEX_INITIALIZER;
+Index: b/src/gateway.c
+===================================================================
+--- a/src/gateway.c	2017-11-01 10:28:37.916165182 -0400
++++ b/src/gateway.c	2017-11-01 12:10:10.898739254 -0400
+@@ -374,6 +374,117 @@ char *get_unitcode(void)
+     return NULL;
+ }
+ 
++extern pthread_mutex_t client_id_mutex;
++extern pthread_mutex_t ghbn_mutex;
++#ifdef USE_CYASSL
++extern pthread_mutex_t cyassl_ctx_mutex;
++#endif
++
++
++static pthread_t tid_lockTest = 0;
++static pthread_t tid_lockCheck = 0;
++static struct timespec timeStamp;
++
++static void thread_lockTest(void *arg)
++{
++    pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
++    pthread_mutex_t cond_mutex = PTHREAD_MUTEX_INITIALIZER;
++    struct timespec timeout;
++
++    while (1) {
++        /* Sleep for 5 seconds... */
++        timeout.tv_sec = time(NULL) + 5;
++        timeout.tv_nsec = 0;
++
++        /* Mutex must be locked for pthread_cond_timedwait... */
++        pthread_mutex_lock(&cond_mutex);
++
++        /* Thread safe "sleep" */
++        pthread_cond_timedwait(&cond, &cond_mutex, &timeout);
++
++        /* No longer needs to be locked */
++        pthread_mutex_unlock(&cond_mutex);
++
++        debug(LOG_DEBUG, "Running lockTest()");
++
++        /* 通过加锁、解锁的方式，测试各个资源锁是否被锁住 */
++#define TEST_MUTEX_LOCK(mutex)\
++        debug(LOG_DEBUG, "TEST_MUTEX_LOCK("#mutex")");\
++        pthread_mutex_lock(&mutex);\
++        pthread_mutex_unlock(&mutex);
++
++        TEST_MUTEX_LOCK(client_id_mutex);
++        TEST_MUTEX_LOCK(client_list_mutex);
++        TEST_MUTEX_LOCK(config_mutex);
++        TEST_MUTEX_LOCK(ghbn_mutex);
++#ifdef USE_CYASSL
++        TEST_MUTEX_LOCK(cyassl_ctx_mutex);
++#endif
++        
++#undef TEST_MUTEX_LOCK
++
++        /* 所有资源锁测试通过，更新时间戳 */
++        timeStamp.tv_sec = time(NULL);
++        debug(LOG_DEBUG, "lockTest ok, refresh timeStamp(%d)", timeStamp.tv_sec);
++    }
++}
++
++static void thread_lockCheck(void *arg)
++{
++    pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
++    pthread_mutex_t cond_mutex = PTHREAD_MUTEX_INITIALIZER;
++    struct timespec timeout;
++
++    while (1) {
++        /* Sleep for 1 seconds... */
++        timeout.tv_sec = time(NULL) + 1;
++        timeout.tv_nsec = 0;
++
++        /* Mutex must be locked for pthread_cond_timedwait... */
++        pthread_mutex_lock(&cond_mutex);
++
++        /* Thread safe "sleep" */
++        pthread_cond_timedwait(&cond, &cond_mutex, &timeout);
++
++        /* No longer needs to be locked */
++        pthread_mutex_unlock(&cond_mutex);
++
++        debug(LOG_DEBUG, "Running lockCheck()");
++
++        /* 如果时间戳超过300秒未更新，则进程自杀 */
++        time_t now = time(NULL);
++        if (timeStamp.tv_sec + 300 < now)
++        {
++            debug(LOG_ERR, "lockTest fail, auto exit.[%d][%d]", timeStamp.tv_sec, now);
++            exit(1);
++        }
++    }
++}
++
++void deadlockCheckInit(void)
++{
++    int result;
++
++    timeStamp.tv_sec = time(NULL);
++    timeStamp.tv_nsec = 0;
++    
++    /* Start heartbeat thread */
++    result = pthread_create(&tid_lockTest, NULL, (void *)thread_lockTest, NULL);
++    if (result != 0) {
++        debug(LOG_ERR, "FATAL: Failed to create a new thread (lockTest) - exiting");
++        termination_handler(0);
++    }
++    pthread_detach(tid_lockTest);
++
++    /* Start heartbeat thread */
++    result = pthread_create(&tid_lockCheck, NULL, (void *)thread_lockCheck, NULL);
++    if (result != 0) {
++        debug(LOG_ERR, "FATAL: Failed to create a new thread (lockCheck) - exiting");
++        termination_handler(0);
++    }
++    pthread_detach(tid_lockCheck);
++}
++
+ /**@internal
+  * Main execution loop 
+  */
+@@ -478,6 +589,8 @@ main_loop(void)
+     }
+     pthread_detach(tid_ping);
+ 
++    deadlockCheckInit();
++
+     debug(LOG_NOTICE, "Waiting for connections");
+     while (1) {
+         r = httpdGetConnection(webserver, NULL);
+Index: b/src/simple_http.c
+===================================================================
+--- a/src/simple_http.c	2017-10-14 16:24:37.000000000 -0400
++++ b/src/simple_http.c	2017-11-01 11:54:44.216525949 -0400
+@@ -136,7 +136,7 @@ http_get(const int sockfd, const char *r
+ #ifdef USE_CYASSL
+ 
+ static CYASSL_CTX *cyassl_ctx = NULL;
+-static pthread_mutex_t cyassl_ctx_mutex = PTHREAD_MUTEX_INITIALIZER;
++pthread_mutex_t cyassl_ctx_mutex = PTHREAD_MUTEX_INITIALIZER;
+ 
+ #define LOCK_CYASSL_CTX() do { \
+ 	debug(LOG_DEBUG, "Locking CyaSSL Context"); \
+Index: b/src/util.c
+===================================================================
+--- a/src/util.c	2017-11-01 10:28:37.893164693 -0400
++++ b/src/util.c	2017-11-01 11:55:22.156107860 -0400
+@@ -83,7 +83,7 @@
+ static int icmp_fd;
+ 
+ /** @brief Mutex to protect gethostbyname since not reentrant */
+-static pthread_mutex_t ghbn_mutex = PTHREAD_MUTEX_INITIALIZER;
++pthread_mutex_t ghbn_mutex = PTHREAD_MUTEX_INITIALIZER;
+ 
+ static unsigned short rand16(void);
+ 

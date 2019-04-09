@@ -1,0 +1,163 @@
+Index: b/src/gateway.c
+===================================================================
+--- a/src/gateway.c	2018-01-11 16:08:51.583399753 +0800
++++ b/src/gateway.c	2018-01-11 16:13:28.309609206 +0800
+@@ -704,6 +704,10 @@ int get_config_from_server(const char *m
+     char url[128];
+     char result[32];
+     char local_wlist[10 * 1024];
++    int timeout_s = -1;
++    int local_timeout_s = -1;
++
++    s_config *config = config_get_config();
+ 
+     memset(result, 0, sizeof(result));
+ 
+@@ -726,39 +730,47 @@ int get_config_from_server(const char *m
+         }
+ 
+         ret = fread(buffer, 1, sizeof(buffer), pf);
++        fclose(pf);
+         if (ret < 0)
+         {
+             debug(LOG_ERR, "read /etc/config/whiteList failed.\n");
+-            fclose(pf);
+             return -1;
+         }
+ 
+         ret = sscanf(buffer,
+             "result=%s "
+-            "wlist=%s ", 
++            "wlist=%s "
++            "timeout=%d ", 
+             result,
+-            wlist);
++            wlist,
++            &timeout_s);
+         printf(
+             "local:result=%s\n"
+-            "wlist=%s\n", 
++            "wlist=%s\n"
++            "timeout=%d\n", 
+             result,
+-            wlist);
++            wlist,
++            timeout_s);
+ 
+         if (memcmp(result, "success", strlen("success") + 1)
+             || ret < 1)
+         {
+             debug(LOG_ERR, "get_config_from_server local failed.\n");
+-            fclose(pf);
++            
+             return -1;
+         }
+ 
+-        fclose(pf);
++        if (timeout_s > 0)
++        {
++            config->clienttimeout = (timeout_s + config->checkinterval - 1) / config->checkinterval;
++        }
++
+         return 0;
+     }
+     
+ #if 1
+-    const char *host = config_get_config()->auth_servers[0].authserv_hostname;
+-    int port = config_get_config()->auth_servers[0].authserv_http_port;
++    const char *host = config->auth_servers[0].authserv_hostname;
++    int port = config->auth_servers[0].authserv_http_port;
+     snprintf(url, sizeof(url) - 1, "/api/mac_list?mac=%s", mac);
+ #else
+     const char *host = "192.168.18.210";
+@@ -842,14 +854,18 @@ int get_config_from_server(const char *m
+     
+         ret = sscanf(p,
+             "result=%s "
+-            "wlist=%s ", 
++            "wlist=%s "
++            "timeout=%d ", 
+             result,
+-            wlist);
++            wlist,
++            &timeout_s);
+         printf(
+             "got:result=%s\n"
+-            "wlist=%s\n", 
++            "wlist=%s\n"
++            "timeout=%d \n", 
+             result,
+-            wlist);
++            wlist,
++            timeout_s);
+     }
+     else
+     {
+@@ -864,6 +880,11 @@ int get_config_from_server(const char *m
+     }
+     else
+     {
++        if (timeout_s > 0)
++        {
++            config->clienttimeout = (timeout_s + config->checkinterval - 1) / config->checkinterval;
++        }
++        
+         /* 保存白名单*/
+         /* 读取本地信息 */
+         FILE *pf = fopen("/etc/config/whiteList", "rb+");
+@@ -888,22 +909,27 @@ int get_config_from_server(const char *m
+ 
+         ret = sscanf(buffer,
+             "result=%s "
+-            "wlist=%s ", 
++            "wlist=%s "
++            "timeout=%d ", 
+             result,
+-            local_wlist);
++            local_wlist,
++            &local_timeout_s);
+         
+         /* 比对是否和服务器信息一致 */
+         /* 如果不一致，则更新 */
+         if (ret < 1
+             || memcmp(result, "success", strlen("success") + 1)
+-            || memcmp(local_wlist, wlist, strlen(wlist) + 1))
++            || memcmp(local_wlist, wlist, strlen(wlist) + 1)
++            || local_timeout_s != timeout_s)
+         {
+             printf("refresh wlist.\n");
+         
+             snprintf(buffer, sizeof(buffer),
+             "result=success "
+-            "wlist=%s ",
+-            wlist);
++            "wlist=%s "
++            "timeout=%d ",
++            wlist,
++            timeout_s);
+ 
+             fseek(pf, 0, SEEK_SET);
+             fwrite(buffer, 1, strlen(buffer) + 1, pf);
+@@ -1248,7 +1274,7 @@ gw_main(int argc, char **argv)
+         }while(result != 0);
+     }
+ 
+-    /* 从认证服务器获取白名单 */
++    /* 从认证服务器获取白名单、用户下线超时时间 */
+     do{
+         result = get_config_from_server(config->gw_id);
+         if (result != 0)
+Index: b/src/wd_util.c
+===================================================================
+--- a/src/wd_util.c	2018-01-11 16:08:51.542397971 +0800
++++ b/src/wd_util.c	2018-01-11 16:13:32.668523534 +0800
+@@ -236,5 +236,9 @@ get_status_text()
+ 
+     UNLOCK_CONFIG();
+ 
++    pstr_append_sprintf(pstr, "\nconfig param:\n");
++    pstr_append_sprintf(pstr, "  checkinterval %d\n", config->checkinterval);
++    pstr_append_sprintf(pstr, "  clienttimeout %d (%d s)\n", config->clienttimeout, config->checkinterval * config->clienttimeout);
++
+     return pstr_to_string(pstr);
+ }

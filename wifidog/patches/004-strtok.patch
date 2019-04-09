@@ -1,0 +1,175 @@
+Index: b/libhttpd/protocol.c
+===================================================================
+--- a/libhttpd/protocol.c	2017-10-16 07:18:52.000000000 -0400
++++ b/libhttpd/protocol.c	2017-10-26 01:36:49.319145518 -0400
+@@ -431,8 +431,14 @@ int createFlag;
+     strncpy(buffer, dir, HTTP_MAX_URL);
+     buffer[HTTP_MAX_URL - 1] = 0;
+     curItem = server->content;
+-    curDir = strtok(buffer, "/");
+-    while (curDir) {
++    char *p = buffer;
++
++    while (curDir = strsep(&p, "/")) {
++        if (*curDir == 0)
++        {
++            continue;
++        }
++        
+         curChild = curItem->children;
+         while (curChild) {
+             if (strcmp(curChild->name, curDir) == 0)
+@@ -451,7 +457,6 @@ int createFlag;
+             }
+         }
+         curItem = curChild;
+-        curDir = strtok(NULL, "/");
+     }
+     return (curItem);
+ }
+Index: b/src/fw_iptables.c
+===================================================================
+--- a/src/fw_iptables.c	2017-10-26 01:05:53.931647318 -0400
++++ b/src/fw_iptables.c	2017-10-26 02:37:24.191642040 -0400
+@@ -491,6 +491,43 @@ iptables_fw_destroy(void)
+     return 1;
+ }
+ 
++static int pipeIsOpened = 0;
++static int pipoOpenRet = -1;
++
++FILE * popen_s ( const char * command , const char * type )
++{
++    if (pipeIsOpened != 0)
++    {
++        debug(LOG_ERR, "pipe is allready open.");
++        return NULL;
++    }
++
++    pipeIsOpened = 1;
++
++    char buff[256];
++
++    snprintf(buff, sizeof(buff) - 1, "%s > /tmp/wifidogTmpFile", command);
++    
++    buff[sizeof(buff) - 1] = 0;
++    
++    pipoOpenRet = execute(buff, 1);
++
++    return fopen("/tmp/wifidogTmpFile", "r");
++}
++
++int pclose_s ( FILE *p )
++{
++    if (pipeIsOpened != 1)
++    {
++        debug(LOG_ERR, "pipe is allready open.");
++        return NULL;
++    }
++
++    fclose(p);
++    pipeIsOpened = 0;
++    return pipoOpenRet;
++}
++
+ /*
+  * Helper for iptables_fw_destroy
+  * @param table The table to search
+@@ -515,7 +552,7 @@ iptables_fw_destroy_mention(const char *
+     safe_asprintf(&command, "iptables -t %s -L %s -n --line-numbers -v", table, chain);
+     iptables_insert_gateway_id(&command);
+ 
+-    if ((p = popen(command, "r"))) {
++    if ((p = popen_s(command, "r"))) {
+         /* Skip first 2 lines */
+         while (!feof(p) && fgetc(p) != '\n') ;
+         while (!feof(p) && fgetc(p) != '\n') ;
+@@ -537,7 +574,7 @@ iptables_fw_destroy_mention(const char *
+                 }
+             }
+         }
+-        pclose(p);
++        pclose_s(p);
+     }
+ 
+     free(command);
+@@ -638,10 +675,10 @@ iptables_fw_counters_update(void)
+     /* Look for outgoing traffic */
+     safe_asprintf(&script, "%s %s", "iptables", "-v -n -x -t mangle -L " CHAIN_OUTGOING);
+     iptables_insert_gateway_id(&script);
+-    output = popen(script, "r");
++    output = popen_s(script, "r");
+     free(script);
+     if (!output) {
+-        debug(LOG_ERR, "popen(): %s", strerror(errno));
++        debug(LOG_ERR, "popen_s(): %s", strerror(errno));
+         return -1;
+     }
+ 
+@@ -679,15 +716,15 @@ iptables_fw_counters_update(void)
+             UNLOCK_CLIENT_LIST();
+         }
+     }
+-    pclose(output);
++    pclose_s(output);
+ 
+     /* Look for incoming traffic */
+     safe_asprintf(&script, "%s %s", "iptables", "-v -n -x -t mangle -L " CHAIN_INCOMING);
+     iptables_insert_gateway_id(&script);
+-    output = popen(script, "r");
++    output = popen_s(script, "r");
+     free(script);
+     if (!output) {
+-        debug(LOG_ERR, "popen(): %s", strerror(errno));
++        debug(LOG_ERR, "popen_s(): %s", strerror(errno));
+         return -1;
+     }
+ 
+@@ -722,7 +759,7 @@ iptables_fw_counters_update(void)
+             UNLOCK_CLIENT_LIST();
+         }
+     }
+-    pclose(output);
++    pclose_s(output);
+ 
+     return 1;
+ }
+Index: b/src/fw_iptables.h
+===================================================================
+--- a/src/fw_iptables.h	2017-10-16 07:18:52.000000000 -0400
++++ b/src/fw_iptables.h	2017-10-26 02:29:56.064514036 -0400
+@@ -82,4 +82,7 @@ int iptables_fw_auth_reachable(void);
+ /** @brief All counters in the client list */
+ int iptables_fw_counters_update(void);
+ 
++FILE * popen_s ( const char * command , const char * type );
++int pclose_s ( FILE *p );
++
+ #endif                          /* _IPTABLES_H_ */
+Index: b/src/gateway.c
+===================================================================
+--- a/src/gateway.c	2017-10-26 02:13:01.837329281 -0400
++++ b/src/gateway.c	2017-10-26 02:30:59.414604973 -0400
+@@ -349,7 +349,7 @@ char *get_unitcode(void)
+ {
+     char unitcode[64];
+ 
+-    FILE *out = popen("uci get unit.@unit[0].unitcode", "r");
++    FILE *out = popen_s("uci get unit.@unit[0].unitcode", "r");
+     if (out == NULL)
+     {
+         return NULL;
+@@ -357,11 +357,11 @@ char *get_unitcode(void)
+ 
+     if (fgets(unitcode, sizeof(unitcode), out) != unitcode)
+     {
+-        pclose(out);
++        pclose_s(out);
+         return NULL;
+     }
+ 
+-    if (pclose(out) == 0)
++    if (pclose_s(out) == 0)
+     {
+         unitcode[sizeof(unitcode) - 1] = 0;
+         if (unitcode[strlen(unitcode) - 1] == '\n')

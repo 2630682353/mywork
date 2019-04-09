@@ -1,0 +1,70 @@
+Index: b/src/util.c
+===================================================================
+--- a/src/util.c	2017-11-09 00:05:16.464443235 +0800
++++ b/src/util.c	2017-11-09 00:05:55.305785732 +0800
+@@ -87,6 +87,30 @@ pthread_mutex_t ghbn_mutex = PTHREAD_MUT
+ 
+ static unsigned short rand16(void);
+ 
++int thread_sleep(int ms)
++{
++    pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
++    pthread_mutex_t cond_mutex = PTHREAD_MUTEX_INITIALIZER;
++    struct timespec timeout;
++    struct timeval now;
++
++    gettimeofday(&now, NULL);
++
++    /* Sleep for 5 seconds... */
++    timeout.tv_nsec = now.tv_usec * 1000 + ms * (long int)1000000;
++    timeout.tv_sec = now.tv_sec + (timeout.tv_nsec / (long int)1000000000);
++    timeout.tv_nsec %= (long int)1000000000;
++
++    /* Mutex must be locked for pthread_cond_timedwait... */
++    pthread_mutex_lock(&cond_mutex);
++
++    /* Thread safe "sleep" */
++    pthread_cond_timedwait(&cond, &cond_mutex, &timeout);
++
++    /* No longer needs to be locked */
++    pthread_mutex_unlock(&cond_mutex);
++}
++
+ /** Fork a child and execute a shell command, the parent
+  * process waits for the child to return and returns the child's exit()
+  * value.
+@@ -118,8 +142,32 @@ execute(const char *cmd_line, int quiet)
+ 
+     /* for the parent:      */
+     debug(LOG_DEBUG, "Waiting for PID %d to exit", pid);
+-    rc = waitpid(pid, &status, 0);
+-    debug(LOG_DEBUG, "Process PID %d exited", rc);
++
++    /* 等待子进程结束，超时时间5秒 */
++    int retry = 0;
++    for (retry = 0; retry < 25; retry++)
++    {
++        thread_sleep(200);
++        rc = waitpid(pid, &status, WNOHANG);
++
++        /* 子进程未结束，返回值为 0 */
++        if (rc != 0)
++        {
++            break;
++        }
++    }
++    
++    debug(LOG_DEBUG, "Process PID %d exited [%d]", pid, rc);
++
++    if (rc == 0)
++    {
++        debug(LOG_DEBUG, "Process PID timeout %d .", pid);
++    
++        /* 结束超时的子进程 */
++        char cmd[32];
++        snprintf(cmd, sizeof(cmd), "kill -9 %d", pid);
++        system(cmd);
++    }
+     
+     if (-1 == rc) {
+         debug(LOG_ERR, "waitpid() failed (%s)", strerror(errno));

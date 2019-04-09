@@ -1,0 +1,21 @@
+Index: b/src/gateway.c
+===================================================================
+--- a/src/gateway.c	2017-12-07 14:36:28.434248168 +0800
++++ b/src/gateway.c	2017-12-07 14:36:45.850452705 +0800
+@@ -656,8 +656,6 @@ main_loop(void)
+         debug(LOG_DEBUG, "%s = %s", config->gw_interface, config->gw_id);
+     }
+ 
+-    wait_net_time_sync();
+-
+     do{
+         result = get_config_from_server(config->gw_id);
+         if (result != 0)
+@@ -773,6 +771,7 @@ main_loop(void)
+ int
+ gw_main(int argc, char **argv)
+ {
++    wait_net_time_sync();
+ 
+     s_config *config = config_get_config();
+     config_init();

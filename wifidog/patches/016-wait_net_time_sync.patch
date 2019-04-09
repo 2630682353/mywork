@@ -1,0 +1,67 @@
+Index: b/src/gateway.c
+===================================================================
+--- a/src/gateway.c	2017-12-06 17:46:45.024808374 +0800
++++ b/src/gateway.c	2017-12-06 17:49:15.645039430 +0800
+@@ -376,6 +376,14 @@ int get_config_from_server(const char *m
+     snprintf(url, sizeof(url) - 1, "/wlist.html");
+ #endif
+ 
++    struct hostent *remoteHost = gethostbyname(host);
++
++    if (remoteHost == NULL)
++    {
++        printf("get host ip failed.\n");
++        return -1;
++    }
++
+ 	snprintf(buffer, sizeof(buffer) - 1,
+     	"GET %s HTTP/1.1\r\n"
+     	"Host: %s:%d\r\n"
+@@ -385,8 +393,7 @@ int get_config_from_server(const char *m
+     needSend = strlen(buffer);
+ 
+     int sock_cli = socket(AF_INET,SOCK_STREAM, 0);
+-
+-    struct hostent *remoteHost = gethostbyname(host);
++    
+     struct sockaddr_in servaddr;
+     memset(&servaddr, 0, sizeof(servaddr));
+     servaddr.sin_family = AF_INET;
+@@ -581,6 +588,28 @@ void deadlockCheckInit(void)
+     pthread_detach(tid_lockCheck);
+ }
+ 
++void wait_net_time_sync(void)
++{
++    time_t now = 0;
++
++    /* 该函数需要系统配合实现: */
++    /* 系统启动的时候将时间设置为UTC 1970-01-01 00:00:00 ，即:0秒*/
++    /* 应用程序通过时间判断网络时间是否同步 */
++    while (1)
++    {
++        /* 读取现在的UTC时间秒数*/
++        time(&now);
++        
++        if (now > (86400 * 10))
++        {
++            return;
++        }
++
++        printf("wait_net_time_sync failed.\n");
++        sleep(1);
++    }
++}
++
+ /**@internal
+  * Main execution loop 
+  */
+@@ -627,6 +656,8 @@ main_loop(void)
+         debug(LOG_DEBUG, "%s = %s", config->gw_interface, config->gw_id);
+     }
+ 
++    wait_net_time_sync();
++
+     do{
+         result = get_config_from_server(config->gw_id);
+         if (result != 0)

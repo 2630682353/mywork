@@ -1,0 +1,22 @@
+Index: b/src/wd_util.c
+===================================================================
+--- a/src/wd_util.c	2017-10-26 03:59:30.914583614 -0400
++++ b/src/wd_util.c	2017-10-26 04:00:47.111914696 -0400
+@@ -93,7 +93,7 @@ mark_offline()
+ int
+ is_online()
+ {
+-    if (last_online_time == 0 || (last_offline_time - last_online_time) >= (config_get_config()->checkinterval * 2)) {
++    if (last_online_time == 0 || (last_offline_time - last_online_time) >= (30 * 2)) {
+         /* We're probably offline */
+         return (0);
+     } else {
+@@ -144,7 +144,7 @@ is_auth_online()
+         /* If we're not online auth is definately not online :) */
+         return (0);
+     } else if (last_auth_online_time == 0
+-               || (last_auth_offline_time - last_auth_online_time) >= (config_get_config()->checkinterval * 2)) {
++               || (last_auth_offline_time - last_auth_online_time) >= (30 * 2)) {
+         /* Auth is  probably offline */
+         return (0);
+     } else {

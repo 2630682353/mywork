@@ -1,0 +1,128 @@
+Index: b/src/conf.c
+===================================================================
+--- a/src/conf.c	2018-04-13 14:19:27.722469680 +0800
++++ b/src/conf.c	2018-04-13 14:20:18.291298894 +0800
+@@ -183,6 +183,7 @@ config_init(void)
+     debug(LOG_DEBUG, "Setting default config parameters");
+     config.configfile = safe_strdup(DEFAULT_CONFIGFILE);
+     config.htmlmsgfile = safe_strdup(DEFAULT_HTMLMSGFILE);
++    config.html_wifidog_login_file = safe_strdup(DEFAULT_HTML_WIFIDOG_LOGIN_FILE);
+     config.httpdmaxconn = DEFAULT_HTTPDMAXCONN;
+     config.external_interface = NULL;
+     config.gw_id = DEFAULT_GATEWAYID;
+Index: b/src/conf.h
+===================================================================
+--- a/src/conf.h	2018-04-13 14:19:27.720469621 +0800
++++ b/src/conf.h	2018-04-13 14:20:23.534918019 +0800
+@@ -39,6 +39,7 @@
+ #define DEFAULT_CONFIGFILE SYSCONFDIR"/wifidog.conf"
+ #define DEFAULT_HTMLMSGFILE SYSCONFDIR"/wifidog-msg.html"
+ #endif
++#define DEFAULT_HTML_WIFIDOG_LOGIN_FILE "/etc/wifidog-login.html"
+ #define DEFAULT_DAEMON 1
+ #define DEFAULT_DEBUGLEVEL LOG_INFO
+ #define DEFAULT_HTTPDMAXCONN 10
+@@ -159,6 +160,7 @@ typedef struct _popular_server_t {
+ typedef struct {
+     char *configfile;       /**< @brief name of the config file */
+     char *htmlmsgfile;          /**< @brief name of the HTML file used for messages */
++    char *html_wifidog_login_file;
+     char *wdctl_sock;           /**< @brief wdctl path to socket */
+     char *internal_sock;                /**< @brief internal path to socket */
+     int deltatraffic;                   /**< @brief reset each user's traffic (Outgoing and Incoming) value after each Auth operation. */
+Index: b/src/http.c
+===================================================================
+--- a/src/http.c	2018-04-13 14:19:27.730469918 +0800
++++ b/src/http.c	2018-04-13 14:20:43.673468455 +0800
+@@ -162,7 +162,11 @@ http_callback_404(httpd * webserver, req
+         }
+ 
+         debug(LOG_INFO, "Captured %s requesting [%s] and re-directing them to login page", r->clientAddr, url);
+-        http_send_redirect_to_auth(r, urlFragment, "Redirect to login page");
++
++        int ret = http_send_redirect_to_auth_local(r, urlFragment, "Redirect to login page");
++        if (ret != 0)
++            http_send_redirect_to_auth(r, urlFragment, "Redirect to login page");
++        
+         free(urlFragment);
+     }
+     free(url);
+@@ -228,6 +232,31 @@ http_send_redirect_to_auth(request * r,
+     free(url);
+ }
+ 
++int http_send_redirect_to_auth_local(request * r, const char *urlFragment, const char *text)
++{
++    char *protocol = NULL;
++    int port = 80;
++    t_auth_serv *auth_server = get_auth_server();
++
++    if (auth_server->authserv_use_ssl) {
++        protocol = "https";
++        port = auth_server->authserv_ssl_port;
++    } else {
++        protocol = "http";
++        port = auth_server->authserv_http_port;
++    }
++
++    char *url = NULL;
++    safe_asprintf(&url, "%s://%s:%d%s%s",
++                  protocol, auth_server->authserv_hostname, port, auth_server->authserv_path, urlFragment);
++
++    int ret = send_wifidog_local_login_page(r, NULL, url);
++    debug(LOG_INFO, "url[%s]\n", url);
++    free(url);
++    return ret;
++}
++
++
+ /** @brief Sends a redirect to the web browser 
+  * @param r The request
+  * @param url The url to redirect to
+@@ -389,3 +418,46 @@ send_http_page(request * r, const char *
+     httpdOutput(r, buffer);
+     free(buffer);
+ }
++
++int send_wifidog_local_login_page(request * r, const char *title, const char *message)
++{
++    s_config *config = config_get_config();
++    char *buffer;
++    struct stat stat_info;
++    int fd;
++    ssize_t written;
++
++    fd = open(config->html_wifidog_login_file, O_RDONLY);
++    if (fd == -1) {
++        debug(LOG_CRIT, "Failed to open HTML message file %s: %s", config->html_wifidog_login_file, strerror(errno));
++        return -1;
++    }
++
++    if (fstat(fd, &stat_info) == -1) {
++        debug(LOG_CRIT, "Failed to stat HTML message file: %s", strerror(errno));
++        close(fd);
++        return -1;
++    }
++    // Cast from long to unsigned int
++    buffer = (char *)safe_malloc((size_t) stat_info.st_size + 1);
++    written = read(fd, buffer, (size_t) stat_info.st_size);
++    if (written == -1) {
++        debug(LOG_CRIT, "Failed to read HTML message file: %s", strerror(errno));
++        free(buffer);
++        close(fd);
++        return -1;
++    }
++    close(fd);
++
++    buffer[written] = 0;
++    
++    char node_host[64];
++    snprintf(node_host, sizeof(node_host) - 1, "http://%s", config->gw_address);
++    
++    httpdAddVariable(r, "node_host", node_host);
++    httpdAddVariable(r, "message", message);
++    httpdOutput(r, buffer);
++    free(buffer);
++    return 0;
++}
++

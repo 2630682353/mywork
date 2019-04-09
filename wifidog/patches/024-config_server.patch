@@ -1,0 +1,188 @@
+Index: b/src/gateway.c
+===================================================================
+--- a/src/gateway.c	2017-12-27 12:39:34.653543177 +0800
++++ b/src/gateway.c	2017-12-27 12:41:13.496782327 +0800
+@@ -406,6 +406,8 @@ int fetch_config_server(const char *mac)
+     char url[128];
+     char result[32];
+ 
++    s_config *config = config_get_config();
++
+     memset(result, 0, sizeof(result));
+ 
+     if (mac == NULL)
+@@ -462,18 +464,18 @@ int fetch_config_server(const char *mac)
+             return -1;
+         }
+ 
+-        if (config_get_config()->auth_servers[0].authserv_hostname != NULL)
++        if (config->auth_servers->authserv_hostname != NULL)
+         {
+-            free(config_get_config()->auth_servers[0].authserv_hostname);
++            free(config->auth_servers->authserv_hostname);
+         }
+-        if (config_get_config()->auth_servers[0].authserv_path != NULL)
++        if (config->auth_servers->authserv_path != NULL)
+         {
+-            free(config_get_config()->auth_servers[0].authserv_path);
++            free(config->auth_servers->authserv_path);
+         }
+         
+-        config_get_config()->auth_servers[0].authserv_hostname = safe_strdup(authserv_hostname);
+-        config_get_config()->auth_servers[0].authserv_http_port = authserv_http_port;
+-        config_get_config()->auth_servers[0].authserv_path = safe_strdup(authserv_path);
++        config->auth_servers->authserv_hostname = safe_strdup(authserv_hostname);
++        config->auth_servers->authserv_http_port = authserv_http_port;
++        config->auth_servers->authserv_path = safe_strdup(authserv_path);
+ 
+         fclose(pf);
+         return 0;
+@@ -596,18 +598,20 @@ int fetch_config_server(const char *mac)
+     else
+     {
+         /* 从配置服务器成功获取到认证服务器信息 */
+-        if (config_get_config()->auth_servers[0].authserv_hostname != NULL)
++        if (config->auth_servers->authserv_hostname != NULL)
+         {
+-            free(config_get_config()->auth_servers[0].authserv_hostname);
++            free(config->auth_servers->authserv_hostname);
++            config->auth_servers->authserv_hostname = NULL;
+         }
+-        if (config_get_config()->auth_servers[0].authserv_path != NULL)
++        if (config->auth_servers->authserv_path != NULL)
+         {
+-            free(config_get_config()->auth_servers[0].authserv_path);
++            free(config->auth_servers->authserv_path);
++            config->auth_servers->authserv_path = NULL;
+         }
+         
+-        config_get_config()->auth_servers[0].authserv_hostname = safe_strdup(authserv_hostname);
+-        config_get_config()->auth_servers[0].authserv_http_port = authserv_http_port;
+-        config_get_config()->auth_servers[0].authserv_path = safe_strdup(authserv_path);
++        config->auth_servers->authserv_hostname = safe_strdup(authserv_hostname);
++        config->auth_servers->authserv_http_port = authserv_http_port;
++        config->auth_servers->authserv_path = safe_strdup(authserv_path);
+     
+         /* 保存认证服务器信息 */
+         /* 读取本地信息 */
+@@ -656,9 +660,9 @@ int fetch_config_server(const char *mac)
+         /* 如果不一致，则更新 */
+         if (ret != 4
+             || memcmp(result, "success", strlen("success") + 1)
+-            || memcmp(authserv_hostname, config_get_config()->auth_servers[0].authserv_hostname, strlen(config_get_config()->auth_servers[0].authserv_hostname) + 1)
+-            || (authserv_http_port != config_get_config()->auth_servers[0].authserv_http_port)
+-            || memcmp(authserv_path, config_get_config()->auth_servers[0].authserv_path, strlen(config_get_config()->auth_servers[0].authserv_path) + 1))
++            || memcmp(authserv_hostname, config->auth_servers->authserv_hostname, strlen(config->auth_servers->authserv_hostname) + 1)
++            || (authserv_http_port != config->auth_servers->authserv_http_port)
++            || memcmp(authserv_path, config->auth_servers->authserv_path, strlen(config->auth_servers->authserv_path) + 1))
+         {
+             printf("refresh server info.\n");
+         
+@@ -667,9 +671,9 @@ int fetch_config_server(const char *mac)
+             "Hostname=%s "
+             "HTTPPort=%d "
+             "Path=%s",
+-            config_get_config()->auth_servers[0].authserv_hostname,
+-            config_get_config()->auth_servers[0].authserv_http_port,
+-            config_get_config()->auth_servers[0].authserv_path);
++            config->auth_servers->authserv_hostname,
++            config->auth_servers->authserv_http_port,
++            config->auth_servers->authserv_path);
+ 
+             fseek(pf, 0, SEEK_SET);
+             fwrite(buffer, 1, strlen(buffer) + 1, pf);
+@@ -1070,40 +1074,6 @@ main_loop(void)
+         debug(LOG_DEBUG, "%s = %s", config->gw_interface, config->gw_address);
+     }
+ 
+-    /* If we don't have the Gateway ID, construct it from the internal MAC address.
+-     * "Can't fail" so exit() if the impossible happens. */   
+-    if (!config->gw_id) {
+-        debug(LOG_DEBUG, "Finding MAC address of %s", config->gw_interface);
+-        if ((config->gw_id = get_iface_mac(config->gw_interface)) == NULL) {
+-            debug(LOG_ERR, "Could not get MAC address information of %s, exiting...", config->gw_interface);
+-            exit(1);
+-        }
+-        debug(LOG_DEBUG, "%s = %s", config->gw_interface, config->gw_id);
+-    }
+-
+-    /* 从配置服务器获取认证服务器信息 */
+-    do{
+-        result = fetch_config_server(config->gw_id);
+-        if (result != 0)
+-        {
+-            debug(LOG_ERR, "!!!fetch_config_server failed[%d].\n", result);
+-            sleep(5);
+-        }
+-    }while(result != 0);
+-
+-    /* 从认证服务器获取白名单 */
+-    do{
+-        result = get_config_from_server(config->gw_id);
+-        if (result != 0)
+-        {
+-            debug(LOG_ERR, "!!!get_config_from_server failed[%d].\n", result);
+-            sleep(5);
+-        }
+-    }while(result != 0);
+-
+-    parse_trusted_mac_list(wlist);
+-    parse_trusted_mac_list(get_local_wlist());
+-
+     /* Initializes the web server */
+     debug(LOG_NOTICE, "Creating web server on %s:%d", config->gw_address, config->gw_port);
+     if ((webserver = httpdCreate(config->gw_address, config->gw_port)) == NULL) {
+@@ -1208,6 +1178,8 @@ main_loop(void)
+ int
+ gw_main(int argc, char **argv)
+ {
++    int result;
++    
+     wait_net_time_sync();
+ 
+     s_config *config = config_get_config();
+@@ -1217,6 +1189,44 @@ gw_main(int argc, char **argv)
+ 
+     /* Initialize the config */
+     config_read(config->configfile);
++
++    /* If we don't have the Gateway ID, construct it from the internal MAC address.
++     * "Can't fail" so exit() if the impossible happens. */   
++    if (!config->gw_id) {
++        debug(LOG_DEBUG, "Finding MAC address of %s", config->gw_interface);
++        if ((config->gw_id = get_iface_mac(config->gw_interface)) == NULL) {
++            debug(LOG_ERR, "Could not get MAC address information of %s, exiting...", config->gw_interface);
++            exit(1);
++        }
++        debug(LOG_DEBUG, "%s = %s", config->gw_interface, config->gw_id);
++    }
++
++    /* 从配置服务器获取认证服务器信息 */
++    if (0 == memcmp(config->auth_servers->authserv_hostname, "fetch_config_server", sizeof("fetch_config_server")))
++    {
++        do{
++            result = fetch_config_server(config->gw_id);
++            if (result != 0)
++            {
++                debug(LOG_ERR, "!!!fetch_config_server failed[%d].\n", result);
++                sleep(5);
++            }
++        }while(result != 0);
++    }
++
++    /* 从认证服务器获取白名单 */
++    do{
++        result = get_config_from_server(config->gw_id);
++        if (result != 0)
++        {
++            debug(LOG_ERR, "!!!get_config_from_server failed[%d].\n", result);
++            sleep(5);
++        }
++    }while(result != 0);
++
++    parse_trusted_mac_list(wlist);
++    parse_trusted_mac_list(get_local_wlist());
++    
+     config_validate();
+ 
+     /* Initializes the linked list of connected clients */

@@ -1,0 +1,14 @@
+#!/bin/sh /etc/rc.common
+# Copyright (C) 2006-2011 OpenWrt.org
+
+START=54
+
+start() {
+	radius_client &
+}
+
+stop() {
+	killall radius_client
+}
+
+

@@ -15,6 +15,7 @@ extern "C" {
 #define GATEWAY_LOG_PATH "/tmp/gateway_log"
 #define SJMAIN_LOG_PATH "/tmp/sjmain_log"
 #define FLOW_RECORD_PATH "/tmp/flow_record"
+#define IP_RECORD_PATH "/tmp/ip_record"
 
 
 enum log_enum{
@@ -52,6 +53,9 @@ extern unsigned int log_leveljf;
     write_file(FLOW_RECORD_PATH, fmt, ##args); \
 }while(0)
 
+#define IP_FLOW_RECORD(fmt,args...) do{ \
+    write_file(IP_RECORD_PATH, fmt, ##args); \
+}while(0)
 
 extern void my_log(int logl, char *file, const char *fmt, ...);
 extern void write_file(char *file, const char *fmt, ...);

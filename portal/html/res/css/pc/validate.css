@@ -1,0 +1,185 @@
+@charset "UTF-8";
+body{
+    background-color: #FFFFFF;
+}
+.container{
+    width:1200px;
+    height: 610px;
+    margin:27px auto;
+    position: relative;
+}
+.borderShadow{
+    border:1px solid #e6e6e6;
+    border-radius: 4px;
+    -webkit-border-radius: 4px;
+    -moz-border-radius: 4px;
+    -webkit-box-shadow: 0px 0px  1px 1px rgba(0,0,0,0.09);
+    -moz-box-shadow:0px 0px  1px 1px rgba(0,0,0,0.09) ;
+    box-shadow: 0px 0px 1px  1px  rgba(0,0,0,0.09) ;
+}
+.stroke{
+    border:1px solid #e6e6e6;
+    height: 550px;
+}
+.container > div{
+    display: inline-block;
+}
+.advertisement{
+    height:610px;
+    /*width:476px;*/
+    width:770px;
+    padding:30px;
+    float: left;
+}
+.advertisement img{
+    height:550px;
+    /*width:416px;*/
+    width: 710px;
+}
+.content-right{
+    width: 720px;
+    text-align: center;
+    height: 610px;
+}
+.logo{
+    position: absolute;
+    top:30px;
+    right:30px;
+}
+.logo img{
+    width:255px;
+    height:80px;
+}
+.validate{
+    margin: 235px 0;
+}
+.validate p{
+    color:#36a9e5;
+    font-size:3em;
+    padding-top:10px;
+}
+/*下载页--山东*/
+.wifiBanner{
+    padding:92px;
+}
+.wifiBanner img{
+    width:431px;
+    height:443px;
+}
+.download{
+    margin: 199px 0 0 0;
+}
+.download img{
+    padding-top:60px;
+}
+
+
+
+/*状态页  已使用时长和剩余时长*/
+.state-content{
+    height: 175px;
+    width: 470px;
+    margin: 170px auto 0 auto;
+}
+.state-content .time{
+    float: left;
+    color: #36a9e5;
+    width: 50%;
+}
+.state-content .time .explain{
+    font-size: 1.8em;
+    margin-top: 20px;
+}
+.state-content .time .specificTime{
+    font-size: 2em;
+    margin-top: 20px;
+}
+.state-btn{
+    margin-top: 60px;
+}
+.state-btn button{
+    height: 50px;
+    font-size: 1.8em;
+    color: #ffffff;
+    width: 150px;
+    border-radius: 4px;
+    -webkit-border-radius: 4px;
+    -moz-border-radius: 4px;
+}
+.state-btn .break{
+    background-color: #e6705f;
+    margin-right: 80px;
+}
+.state-btn .returnHome{
+    background-color: #37abe4;
+}
+
+
+/*状态页   已使用时长*/
+.state-content .hasUsed{
+    width: 100%;
+}
+
+
+/*到时提醒页--山东*/
+.remind{
+    text-align: center;
+}
+.remind .reming-img{
+    margin-top:150px;
+}
+
+/*WiFi协议*/
+.content{
+    padding:0 10px 15px;
+    font-size: 15px;
+    line-height: 2;
+    width:1200px;
+    margin: 20px auto 50px;
+}
+
+.content h2{
+    padding: 16px 0 30px;
+    text-align: center;
+}
+.content .agreement{
+    padding-left: 30px;
+}
+.content ol{
+    margin: 0;
+    padding: 0;
+    outline: 0;
+}
+.firstContent h4{
+    font-weight: bold;
+    margin-bottom: 20px;
+}
+.firstContent > li{
+    margin-bottom: 20px;
+}
+
+.secondContent > li{
+    margin-bottom: 20px;
+}
+.content p{
+    margin: 45px 0;
+}
+
+/*图片弹出层*/
+.dialog{
+    background-color: #FFF;
+    padding:50px 100px;
+    border-radius: 10px;
+}
+.dialog img{
+    width:100%;
+
+}
+.footer{
+    /*position: fixed;*/
+    /*bottom: 10px;*/
+    width: 100%;
+    text-align: center;
+    color: #969696;
+    height: 50px;
+}

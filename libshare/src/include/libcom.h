@@ -1,6 +1,7 @@
 #ifndef __LIBCOM_H__
 #define __LIBCOM_H__
 #include "list.h"
+#include <time.h>
 typedef struct user_query_info
 {
 	int auth_type;
@@ -15,10 +16,12 @@ typedef struct user_query_info
 }user_query_info_t;
 
 
+extern char *arp_get(const char *req_ip);
 extern int igd_md5sum(char *file, void *md5);
 extern time_t uptime();
 extern unsigned long long simple_strtoull(const char *cp, char **endp, unsigned int base);
 extern char * strdup(const char *s);
+extern int base64_encode(const unsigned char * sourcedata, char * base64);
 
 
 

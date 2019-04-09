@@ -11,6 +11,8 @@
 #include <stdlib.h>
 
 #define TOLOWER(x) ((x) | 0x20)
+const char * base64char = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+const char padding_char = '=';
 
 /* read file , return n bytes read, or -1 if error */
 int igd_safe_read(int fd, unsigned char *dst, int len)
@@ -147,4 +149,80 @@ err:
 	close(fd);
 	return -1;
 }
+
+char *arp_get(const char *req_ip)
+{
+    FILE           *proc;
+	 char ip[16];
+	 char mac[18];
+	 char * reply = NULL;
+ 
+    if (!(proc = fopen("/proc/net/arp", "r"))) {
+        return NULL;
+    }
+ 
+    /* Skip first line */
+	 while (!feof(proc) && fgetc(proc) != '\n');
+ 
+	 /* Find ip, copy mac in reply */
+	 reply = NULL;
+    while (!feof(proc) && (fscanf(proc, " %15[0-9.] %*s %*s %17[A-Fa-f0-9:] %*s %*s", ip, mac) == 2)) {
+		  if (strcmp(ip, req_ip) == 0) {
+				reply = strdup(mac);
+				break;
+		  }
+    }
+ 
+    fclose(proc);
+ 
+    return reply;
+}
+
+int base64_encode(const unsigned char * sourcedata, char * base64)
+{
+    int i=0, j=0;
+    unsigned char trans_index=0;    // 索引是8位，但是高两位都为0
+    const int datalength = strlen((const char*)sourcedata);
+    for (; i < datalength; i += 3){
+        // 每三个一组，进行编码
+        // 要编码的数字的第一个
+        trans_index = ((sourcedata[i] >> 2) & 0x3f);
+        base64[j++] = base64char[(int)trans_index];
+        // 第二个
+        trans_index = ((sourcedata[i] << 4) & 0x30);
+        if (i + 1 < datalength){
+            trans_index |= ((sourcedata[i + 1] >> 4) & 0x0f);
+            base64[j++] = base64char[(int)trans_index];
+        }else{
+            base64[j++] = base64char[(int)trans_index];
+
+            base64[j++] = padding_char;
+
+            base64[j++] = padding_char;
+
+            break;   // 超出总长度，可以直接break
+        }
+        // 第三个
+        trans_index = ((sourcedata[i + 1] << 2) & 0x3c);
+        if (i + 2 < datalength){ // 有的话需要编码2个
+            trans_index |= ((sourcedata[i + 2] >> 6) & 0x03);
+            base64[j++] = base64char[(int)trans_index];
+
+            trans_index = sourcedata[i + 2] & 0x3f;
+            base64[j++] = base64char[(int)trans_index];
+        }
+        else{
+            base64[j++] = base64char[(int)trans_index];
+
+            base64[j++] = padding_char;
+
+            break;
+        }
+    }
+
+    base64[j] = '\0'; 
+
+    return 0;
+}
+
 

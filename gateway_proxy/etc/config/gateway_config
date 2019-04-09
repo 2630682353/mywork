@@ -1,0 +1,19 @@
+config gateway_base gateway_base
+	option gateway_proxy_loglevel 4
+	option radius_client_loglevel 4
+	option portal_cgi_loglevel    4
+	option heartbeat_interval 60
+	option queryuser_cache_time 60
+	option dropbear_timeout  600
+	option gmc_url_heart      http://192.168.88.10:8001/api/ac/ping
+	option gmc_url_result     http://192.168.88.10:8001/api/ac/report
+	option token_url          http://192.168.1.160:2080/authentication/platform/token/2/
+	option user_query_url	  http://192.168.88.10:8001/api/ac/userQuery
+	option user_register_url  http://192.168.88.10:8001/api/ac/userRegister
+	option text_code_url      http://112.35.1.155:1992/sms/norsubmit
+	option text_str			  "您的服务码是：%06d【华数WIFI】"
+
+config gateway_sys  gateway_sys
+	option hard_version '1.0'
+	option soft_version '1.0'
+	option vendor 'zbt'

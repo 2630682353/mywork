@@ -1,0 +1,14 @@
+Index: b/src/fw_iptables.c
+===================================================================
+--- a/src/fw_iptables.c	2018-04-03 11:54:07.780285182 +0800
++++ b/src/fw_iptables.c	2018-04-03 11:54:37.188734458 +0800
+@@ -439,7 +439,8 @@ ebtables_fw_init(void)
+     
+     ebtables_do_command("-t nat -A PREROUTING -j " CHAIN_OUTGOING);
+ 
+-    ebtables_do_command("-t nat -A " CHAIN_OUTGOING " -p ipv4 --ip-dst %s -j " CHAIN_TO_ROUTER, config->gw_address);
++    /* 网桥模式，需要将各个网段的2060重定向到本机2060，所以这里不对本机放行 */
++    //ebtables_do_command("-t nat -A " CHAIN_OUTGOING " -p ipv4 --ip-dst %s -j " CHAIN_TO_ROUTER, config->gw_address);
+     ebtables_do_command("-t nat -A " CHAIN_OUTGOING " -p ipv4 --ip-dst %s -j " CHAIN_TO_ROUTER, ext_gw_ip);
+     ebtables_do_command("-t nat -A " CHAIN_TO_ROUTER " -j ACCEPT");
+ 

@@ -1,0 +1,57 @@
+Index: b/src/fw_iptables.c
+===================================================================
+--- a/src/fw_iptables.c	2018-01-17 16:58:16.576218136 +0800
++++ b/src/fw_iptables.c	2018-01-17 16:59:41.644964963 +0800
+@@ -292,12 +292,20 @@ iptables_fw_init(void)
+         iptables_do_command("-t mangle -A " CHAIN_TRUSTED " -m mac --mac-source %s -j MARK --set-mark %d", p->mac,
+                             FW_MARK_KNOWN);
+ 
+-    /* 网关放行*/
+-    /* 桥模式的网关不是设备本身 ，网关需要放行才能上桥*/
+-    if (ext_gw_mac != NULL)
++    /* 桥模式，网关放行*/
++    if (memcmp(config->gw_interface, ext_interface, strlen(config->gw_interface) + 1) == 0
++        && ext_gw_mac != NULL)
+     {
++        /* 桥模式的网关不是设备本身 ，网关需要放行才能上桥*/
+         iptables_do_command("-t mangle -A " CHAIN_TRUSTED " -m mac --mac-source %s -j MARK --set-mark %d", 
+                             ext_gw_mac, FW_MARK_KNOWN);
++
++        /* 桥模式下，局域网内部允许访问网关 */
++        iptables_do_command("-t mangle -A " CHAIN_TRUSTED " -d %s -j MARK --set-mark %d", 
++                            ext_gw_ip, FW_MARK_KNOWN);
++
++        iptables_do_command("-t mangle -A " CHAIN_TRUSTED " -s %s -j MARK --set-mark %d", 
++                            ext_gw_ip, FW_MARK_KNOWN);
+     }
+ 
+     /*
+@@ -319,14 +327,7 @@ iptables_fw_init(void)
+     /* Assign links and rules to these new chains */
+     iptables_do_command("-t nat -A PREROUTING -i %s -j " CHAIN_OUTGOING, config->gw_interface);
+ 
+-    iptables_do_command("-t nat -A " CHAIN_OUTGOING " -d %s -j " CHAIN_TO_ROUTER, config->gw_address);
+-    
+-    /* 桥模式下，允许访问网关 */
+-    if (ext_gw_ip != NULL && memcmp(config->gw_address, ext_gw_ip, strlen(config->gw_address) + 1))
+-    {
+-        iptables_do_command("-t nat -A " CHAIN_OUTGOING " -d %s -j " CHAIN_TO_ROUTER, ext_gw_ip);
+-    }
+-    
++    iptables_do_command("-t nat -A " CHAIN_OUTGOING " -d %s -j " CHAIN_TO_ROUTER, config->gw_address);    
+     iptables_do_command("-t nat -A " CHAIN_TO_ROUTER " -j ACCEPT");
+ 
+     iptables_do_command("-t nat -A " CHAIN_OUTGOING " -j " CHAIN_TO_INTERNET);
+Index: b/src/util.c
+===================================================================
+--- a/src/util.c	2018-01-17 16:58:16.576218136 +0800
++++ b/src/util.c	2018-01-17 17:00:04.848032002 +0800
+@@ -341,7 +341,7 @@ get_ext_iface(void)
+                 debug(LOG_INFO, "get_ext_iface(): Detected %s [%s][%s] as the default interface after trying %d", 
+                                 device, ext_gw_ip, ext_gw_mac ? : "NULL", i);
+ 
+-                if (memcmp(config->gw_address, ext_gw_ip, strlen(config->gw_address) + 1) == 0  /* 路由模式 */
++                if (memcmp(config->gw_interface, device, strlen(config->gw_interface) + 1)  /* 路由模式 */
+                     || ext_gw_mac != NULL)                       /* 桥模式，必须获取到网关ip,mac */
+                 {
+                     free(gw);

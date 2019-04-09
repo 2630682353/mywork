@@ -1,0 +1,61 @@
+Index: b/src/gateway.c
+===================================================================
+--- a/src/gateway.c	2017-12-27 12:12:05.193058031 +0800
++++ b/src/gateway.c	2017-12-27 12:14:25.617622437 +0800
+@@ -68,6 +68,8 @@
+  */
+ static pthread_t tid_fw_counter = 0;
+ static pthread_t tid_ping = 0;
++static pthread_t tid_lockTest = 0;
++static pthread_t tid_lockCheck = 0;
+ 
+ time_t started_time = 0;
+ 
+@@ -289,6 +291,14 @@ termination_handler(int s)
+         debug(LOG_INFO, "Explicitly killing the ping thread");
+         pthread_kill(tid_ping, SIGKILL);
+     }
++    if (tid_lockTest && self != tid_lockTest) {
++        debug(LOG_INFO, "Explicitly killing the lockTest thread");
++        pthread_kill(tid_lockTest, SIGKILL);
++    }
++    if (tid_lockCheck && self != tid_lockCheck) {
++        debug(LOG_INFO, "Explicitly killing the lockCheck thread");
++        pthread_kill(tid_lockCheck, SIGKILL);
++    }
+ 
+     debug(LOG_NOTICE, "Exiting...");
+     exit(s == 0 ? 1 : 0);
+@@ -900,9 +910,6 @@ extern pthread_mutex_t ghbn_mutex;
+ extern pthread_mutex_t cyassl_ctx_mutex;
+ #endif
+ 
+-
+-static pthread_t tid_lockTest = 0;
+-static pthread_t tid_lockCheck = 0;
+ static struct timespec timeStamp;
+ 
+ static void thread_lockTest(void *arg)
+@@ -977,8 +984,7 @@ static void thread_lockCheck(void *arg)
+         if (timeStamp.tv_sec + 300 < now)
+         {
+             debug(LOG_ERR, "lockTest fail, auto exit.[%d][%d]", timeStamp.tv_sec, now);
+-            termination_handler(0);
+-            exit(1);
++            termination_handler(1);
+         }
+     }
+ }
+Index: b/src/util.c
+===================================================================
+--- a/src/util.c	2017-12-27 12:12:05.171056518 +0800
++++ b/src/util.c	2017-12-27 12:14:37.719062956 +0800
+@@ -129,7 +129,7 @@ execute(const char *cmd_line, int quiet)
+     {
+         debug(LOG_ERR, "execute failed , exit... %s", strerror(errno));
+         /* system失败，直接结束整个进程 */
+-        exit(1);
++        termination_handler(1);
+     }
+     else
+     {

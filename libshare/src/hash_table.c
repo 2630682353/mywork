@@ -3,8 +3,6 @@
 #include <string.h>
 #include <stdio.h>
 
-#define TABLE_SIZE (1024*1024)
-
 /* constructor of struct kv */
 static void init_kv(struct kv* kv)
 {
@@ -36,19 +34,20 @@ static unsigned int hash_33(char* key)
 }
 
 /* new a HashTable instance */
-HashTable* hash_table_new()
+HashTable* hash_table_new(int tables_szie)
 {
     HashTable* ht = malloc(sizeof(HashTable));
     if (NULL == ht) {
         hash_table_delete(ht);
         return NULL;
     }
-    ht->table = malloc(sizeof(struct kv*) * TABLE_SIZE);
+    ht->table = malloc(sizeof(struct kv*) * tables_szie);
+	ht->size = tables_szie;
     if (NULL == ht->table) {
         hash_table_delete(ht);
         return NULL;
     }
-    memset(ht->table, 0, sizeof(struct kv*) * TABLE_SIZE);
+    memset(ht->table, 0, sizeof(struct kv*) * tables_szie);
 
     return ht;
 }
@@ -58,7 +57,7 @@ void hash_table_delete(HashTable* ht)
     if (ht) {
         if (ht->table) {
             int i = 0;
-            for (i = 0; i<TABLE_SIZE; i++) {
+            for (i = 0; i<ht->size; i++) {
                 struct kv* p = ht->table[i];
                 struct kv* q = NULL;
                 while (p) {
@@ -77,7 +76,7 @@ void hash_table_delete(HashTable* ht)
 /* insert or update a value indexed by key */
 int hash_table_put2(HashTable* ht, char* key, void* value, void(*free_value)(void*))
 {
-    int i = hash_33(key) % TABLE_SIZE;
+    int i = hash_33(key) % ht->size;
     struct kv* p = ht->table[i];
     struct kv* prep = p;
 
@@ -125,7 +124,7 @@ int hash_table_put2(HashTable* ht, char* key, void* value, void(*free_value)(voi
 /* get a value indexed by key */
 void* hash_table_get(HashTable* ht, char* key)
 {
-    int i = hash_33(key) % TABLE_SIZE;
+    int i = hash_33(key) % ht->size;
     struct kv* p = ht->table[i];
     while (p) {
         if (strcmp(key, p->key) == 0) {
@@ -139,7 +138,7 @@ void* hash_table_get(HashTable* ht, char* key)
 /* remove a value indexed by key */
 void hash_table_rm(HashTable* ht, char* key)
 {
-    int i = hash_33(key) % TABLE_SIZE;
+    int i = hash_33(key) % ht->size;
 
     struct kv* p = ht->table[i];
     struct kv* prep = p;

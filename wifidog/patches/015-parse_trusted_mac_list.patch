@@ -1,0 +1,118 @@
+Index: b/src/conf.c
+===================================================================
+--- a/src/conf.c	2017-11-30 18:05:22.510672617 +0800
++++ b/src/conf.c	2017-11-30 18:06:26.315362913 +0800
+@@ -863,6 +863,17 @@ parse_boolean_value(char *line)
+ int
+ check_mac_format(char *possiblemac)
+ {
++    if (possiblemac == NULL
++        || strlen(possiblemac) != 17
++        || possiblemac[2] != ':'
++        || possiblemac[5] != ':'
++        || possiblemac[8] != ':'
++        || possiblemac[11] != ':'
++        || possiblemac[14] != ':')
++    {
++        return 0;
++    }
++
+     unsigned char mac[6];
+     int ret = sscanf(possiblemac,
+                "%2[A-Fa-f0-9]:%2[A-Fa-f0-9]:%2[A-Fa-f0-9]:%2[A-Fa-f0-9]:%2[A-Fa-f0-9]:%2[A-Fa-f0-9]",
+@@ -877,27 +888,29 @@ check_mac_format(char *possiblemac)
+  * Parse the trusted mac list.
+  */
+ void parse_trusted_mac_list(const char *ptr)
+-{
+-    char *ptrcopy = NULL;
++{    
++    if (ptr == NULL)
++    {
++        debug(LOG_ERR, "ptr is NULL");
++        return;
++    }
++
+     char *possiblemac = NULL;
+-    char *mac = NULL;
+     t_trusted_mac *p = NULL;
++    char mac[18];
++    char mac_buff[10 * 1024];
++    
++    snprintf(mac_buff, sizeof(mac_buff) - 1, "%s", ptr);
+ 
+     debug(LOG_DEBUG, "Parsing string [%s] for trusted MAC addresses", ptr);
+ 
+-    mac = safe_malloc(18);
+-
+-    /* strsep modifies original, so let's make a copy */
+-    ptrcopy = safe_strdup(ptr);
+-
+-    while ((possiblemac = strsep(&ptrcopy, ","))) {
+-        /* check for valid format */
++    possiblemac = mac_buff;
++    while (strlen(possiblemac) >= 17) {
++        possiblemac[17] = 0;
+         if (!check_mac_format(possiblemac)) {
+             debug(LOG_ERR,
+                   "[%s] not a valid MAC address to trust. See option TrustedMACList in wifidog.conf for correct this mistake.",
+                   possiblemac);
+-            free(ptrcopy);
+-            free(mac);
+             return;
+         } else {
+             if (sscanf(possiblemac, " %17[A-Fa-f0-9:]", mac) == 1) {
+@@ -939,12 +952,8 @@ void parse_trusted_mac_list(const char *
+                 }
+             }
+         }
++        possiblemac += 18;
+     }
+-
+-    free(ptrcopy);
+-
+-    free(mac);
+-
+ }
+ 
+ /** @internal
+Index: b/src/gateway.c
+===================================================================
+--- a/src/gateway.c	2017-11-30 18:05:22.511672690 +0800
++++ b/src/gateway.c	2017-11-30 18:06:04.987938971 +0800
+@@ -357,6 +357,9 @@ int get_config_from_server(const char *m
+     char buffer[512];
+     int needSend = 0;
+     char url[128];
++    char result[32];
++
++    memset(result, 0, sizeof(result));
+ 
+     if (mac == NULL)
+     {
+@@ -441,12 +444,14 @@ int get_config_from_server(const char *m
+         }
+     
+         ret = sscanf(p,
+-            "result=success "
++            "result=%s "
+             "wlist=%s ", 
++            result,
+             wlist);
+         printf(
+-            "got:result=success\n"
++            "got:result=%s\n"
+             "wlist=%s\n", 
++            result,
+             wlist);
+     }
+     else
+@@ -454,7 +459,7 @@ int get_config_from_server(const char *m
+         printf("invalid len[%d]\n[%s]\n", pos, buffer);
+     }
+ 
+-    if (ret != 1)
++    if (memcmp(result, "success", strlen("success")))
+     {
+         return -1;
+     }

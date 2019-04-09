@@ -6,6 +6,8 @@ extern "C" {
 #endif
 
 #include "type.h"
+#include <pthread.h>
+
 
 typedef struct queue_item_st{
     void *arg;

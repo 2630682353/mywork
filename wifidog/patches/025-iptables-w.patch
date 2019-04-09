@@ -1,0 +1,54 @@
+Index: b/src/fw_iptables.c
+===================================================================
+--- a/src/fw_iptables.c	2017-12-27 14:45:59.842699839 +0800
++++ b/src/fw_iptables.c	2017-12-28 14:54:39.815843557 +0800
+@@ -95,12 +95,48 @@ iptables_do_command(const char *format,
+     char *fmt_cmd;
+     char *cmd;
+     int rc;
++    
++    static char *iptables_pre = NULL;
++    
++    if (iptables_pre == NULL)
++    {
++        int a = 0;
++        int b = 0;
++        int c = 0;
++        char iptables_ver[64];
++
++        /* 获取iptables版本号，格式iptables v1.4.21 */
++
++        FILE *p = NULL;
++        if (p = popen("iptables -V", "r")) 
++        {
++            fgets(iptables_ver, sizeof(iptables_ver), p);
++            pclose(p);
++        }
++
++        sscanf(iptables_ver, "iptables v%d.%d.%d", &a, &b, &c);
++        debug(LOG_NOTICE, "iptables version [%d][%d][%d]", a, b, c);
++
++        if (   (a * 4 + b * 2 + c)
++            >= (1 * 4 + 4 * 2 + 21))
++        {
++            /* openwrt BB版本的iptables版本为1.4.21，可以带-w参数进行等待 */
++            iptables_pre = "iptables -w %s";
++        }
++        else
++        {
++            /* openwrt AA版本的iptables版本为1.4.10，不支持-w参数 */
++            iptables_pre = "iptables %s";
++        }
++
++        debug(LOG_NOTICE, "iptables_pre[%s]", iptables_pre);
++    }
+ 
+     va_start(vlist, format);
+     safe_vasprintf(&fmt_cmd, format, vlist);
+     va_end(vlist);
+ 
+-    safe_asprintf(&cmd, "iptables -w %s", fmt_cmd);
++    safe_asprintf(&cmd, iptables_pre, fmt_cmd);
+     free(fmt_cmd);
+ 
+     iptables_insert_gateway_id(&cmd);

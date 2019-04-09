@@ -1,0 +1,24 @@
+Index: b/src/fw_iptables.c
+===================================================================
+--- a/src/fw_iptables.c	2018-01-24 10:54:26.581057854 +0800
++++ b/src/fw_iptables.c	2018-01-24 10:56:11.528170902 +0800
+@@ -306,6 +306,9 @@ iptables_fw_init(void)
+ 
+         iptables_do_command("-t mangle -A " CHAIN_TRUSTED " -s %s -j MARK --set-mark %d", 
+                             ext_gw_ip, FW_MARK_KNOWN);
++
++        /* Ê¹ÄÜÍøÇÅ·À»ðÇ½ */
++        system("echo 1 > /sys/class/net/br-lan/bridge/nf_call_iptables");
+     }
+ 
+     /*
+@@ -418,9 +421,6 @@ iptables_fw_init(void)
+ 
+     UNLOCK_CONFIG();
+ 
+-    /* Ê¹ÄÜÍøÇÅ·À»ðÇ½ */
+-    system("echo 1 > /sys/class/net/br-lan/bridge/nf_call_iptables");
+-
+     free(ext_interface);
+     return 1;
+ }

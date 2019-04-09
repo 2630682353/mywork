@@ -8,8 +8,8 @@ qos_init(){
 	config_get lan_ifname lan ifname
 	iptables -t mangle -N QOSDOWN
 	iptables -t mangle -N QOSUP
-	iptables -t mangle -I FORWARD -i $wan_ifname -j QOSDOWN
-	iptables -t mangle -I FORWARD -o $wan_ifname -j QOSUP
+	iptables -t mangle -I POSTROUTING -o $lan_ifname -j QOSDOWN
+	iptables -t mangle -I POSTROUTING -o $wan_ifname -j QOSUP
 
 	ip link set dev ifb0 up
 	tc qdisc add dev $lan_ifname root handle 1: prio
@@ -26,8 +26,8 @@ mystop(){
 	config_get wan_ifname wan ifname
 	iptables -t mangle -F QOSDOWN 
 	iptables -t mangle -F QOSUP
-	iptables -t mangle -D FORWARD -i $wan_ifname -j QOSDOWN
-	iptables -t mangle -D FORWARD -o $wan_ifname -j QOSUP
+	iptables -t mangle -D POSTROUTING -o $lan_ifname -j QOSDOWN
+	iptables -t mangle -D POSTROUTING -o $wan_ifname -j QOSUP
 	iptables -t mangle -X QOSDOWN
 	iptables -t mangle -X QOSUP
 	tc qdisc del dev $lan_ifname root
@@ -35,7 +35,7 @@ mystop(){
 	tc qdisc del dev ifb0 root
 }
 
-tcclass_num=1
+tcclass_num=3
 setup_eachip_qos() 
 {
 	local qos_ip

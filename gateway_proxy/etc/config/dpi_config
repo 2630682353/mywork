@@ -1,0 +1,18 @@
+config  dpi_base dpi_base
+	option dpi_enable 1
+	option item_num 1
+
+config  dpi_item
+	option id        1
+	option position  0  # auth_up:0 auth_down:1 black_up:2 
+						# black_down:3 white_up:4  white_down:5 
+	option maxcnt	100
+	option maxsecs  100
+	option intra_mac 22:22:22:22:22:22 
+	option intra_ip  192.168.1.111
+	option intra_mask 255.255.255.0
+	option outer_ip  123.125.115.110
+	option outer_mask 255.0.0.0
+	option l4_proto	 tcp   # tcp/udp
+	option outer_port 80
+

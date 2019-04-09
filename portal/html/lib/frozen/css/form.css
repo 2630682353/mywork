@@ -1,0 +1,264 @@
+@charset "UTF-8";
+
+.container .ui-form{
+    padding: 10px 0 0 10px;
+}
+.ui-form-item{
+    padding: 0;
+    display: -webkit-box;
+    display: -moz-box;
+    display: box;
+    height: auto;
+    overflow: hidden;
+    line-height: inherit;
+    margin-top: 20px;
+}
+.ui-form-item input:not([type="checkbox"]){
+    padding: 0;
+}
+
+.ui-form ::-webkit-input-placeholder {
+    color: #969696;
+}
+.ui-form-item div{
+    margin-left: 20px;
+    -webkit-box-flex: 1;
+    -moz-box-flex: 1;
+    box-flex:1;
+}
+.ui-form-item div[class^=icon-]{
+    -webkit-border-top-left-radius: 999px;
+    -webkit-border-top-right-radius: 999px;
+    -webkit-border-bottom-left-radius: 999px;
+    -webkit-border-bottom-right-radius: 999px;
+    -webkit-border-radius: 999px;
+    width: 30px;
+    height: 30px;
+    line-height: 30px;
+    text-align: center;
+    color: #fff;
+    margin:0;
+    -webkit-box-flex: 0.0;
+    -moz-box-flex:  0.0;
+    box-flex: 0.0;
+}
+.ui-form-item  .iconfont{
+    font-size: 21px;
+}
+/*.ui-form-item .icon-normalPhone .iconfont{*/
+/*line-height: 31px;*/
+/*}*/
+
+/*button*/
+.ui-btn-wrap{
+    text-align: center;
+    padding: 30px 0px;
+}
+.ui-btn{
+    height: 40px;
+    line-height: 38px;
+    display: inline-block;
+    border-radius: 5px;
+    font-size: 1.9rem;
+    width:50%;
+}
+
+.ui-btn-register{
+    background-image: none;
+    border:1px solid #969696;
+    color: #969696;
+    background-color: #FFFFFF;
+}
+.ui-btn-register:not(.disabled):not(:disabled):active{
+    border-color: #518c28;
+    color: #518c28;
+    background-image: none;
+    background-color: #FFFFFF;
+}
+
+/*短信验证码登录 忘记密码*/
+.verification{
+    padding-top: 30px;
+}
+.verification .forgetPassword{
+    position: absolute;
+    right: 15px;
+}
+.verification span:not(.disabled):not(:disabled):active{
+    color:#5ea52e;
+}
+.sms-ver{
+    padding-top: 30px;
+}
+/*注册界面  忘记密码*/
+.register-forgetPassword{
+    padding-top: 10px;
+}
+.register-forgetPassword span{
+    position: absolute;
+    right: 10px;
+}
+.register-btn{
+    padding-top: 50px;
+}
+/*验证码*/
+.ui-btn-code{
+    margin-right: 10px;
+    width: 80px;
+    height: 25px;
+    line-height: 25px;
+    font-size: 1.2rem;
+    overflow: hidden;
+    padding: 0px;
+    background-image: none;
+    background-color: #FFFFFF;
+    color: #969696;
+    border: 1px solid #969696;
+    border-radius: 2px;
+}
+.ui-btn-code:disabled{
+    color: #cacccd;
+}
+.ui-btn-code:not(.disabled):not(:disabled):active{
+    color:#5fa531;
+    border: 1px solid #5fa531;
+}
+
+.telInputHack{
+    padding-right: 100px;
+    position: relative;
+}
+.telInputHack .ui-btn-code{
+    position: absolute;
+    right: 0px;
+    top: 0;
+}
+/*设置密码和修改密码提示句*/
+.password-prompt{
+    margin-top: 10px;
+    padding-right: 10px;
+    color: #969696;
+}
+
+
+/*table*/
+.ui-table{
+    font-size: 1.5rem;
+    line-height: 1.1;
+    -webkit-box-sizing: border-box;
+    box-sizing: border-box;
+}
+
+.ui-table header,
+.ui-table thead{
+    background-color: #CBCBCB;
+    color:#333;
+}
+.ui-table .ui-border{
+    -webkit-border-radius: 0px;
+    border-radius: 0px;
+}
+.ui-content{
+    padding: 10px 0;
+}
+.ui-table header,
+ .ui-table thead td{
+    padding:9px 10px 7px;
+}
+.ui-table tbody td{
+    padding:10px;
+    border-right: 0;
+}
+.ui-table ul{
+    padding: 0 10px;
+}
+.ui-table ul li{
+    padding:10px 0;
+}
+.ui-table td, .ui-table th {
+    border-color: #efefef;
+}
+@media screen and (-webkit-min-device-pixel-ratio: 2) {
+    .ui-table td:before, .ui-table th:before {
+        border-right: none;
+    }
+    .ui-table td:after, .ui-table th:after{
+        border-color: #efefef;
+    }
+}
+
+.ui-table tbody td:last-child{
+    text-align: right;
+}
+.ui-table tbody td:first-child{
+    text-align: left;
+}
+/*end*/
+
+.remind,.remindPrimary{
+    color: #666;
+    text-align: center;
+}
+.remind{
+    font-size: 1.3rem;
+    padding: 5px 0 5px;
+}
+.remindPrimary{
+    font-size: 2.2em;
+    padding: 20px 0 30px;
+}
+
+.remindPrimary .iconfont{
+    margin-right: 10px;
+}
+
+/*radio*/
+.ui-radio{
+    line-height: 17px;
+}
+.ui-radio input{
+    width: 15px;
+}
+.ui-radio input:before{
+    width: 15px;
+    height: 15px;
+    border-color: #efefef;
+    top: -8px;
+}
+.ui-radio input:checked:before{
+    border-color: #60a430;
+}
+.ui-radio input:checked:after{
+    width: 9px;
+    height: 9px;
+    background: #60a430;
+    left: 4px;
+    top: -4px;
+}
+
+.ui-radio input,.ui-radio div{
+    display: inline-block;
+}
+/*图标背景色*/
+.icon-appApl{
+    background-color: #29A272;
+}
+.icon-normalPhone{
+    background-color: #af5da2;
+}
+.icon-auth{
+    background-color: #5fa531;
+}
+.icon-party{
+    background-color: #01aeaf;
+}
+.icon-passWord{
+    background-color: #f5a823;
+}
+.icon-confirePswd{
+    background-color: #00b8ef;
+}
+.icon-passWord-old{
+    background-color: #969696;
+}
+/*end*/

@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <meta name="viewport" content="width=device-width, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+    <meta name="format-detection" content="telephone=no"/>
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black" />
+    <title>上网认证</title>
+    <link rel="shortcut icon" href="" type="image/x-icon">
+    <link rel="stylesheet" type="text/css" href="../../../portal/lib/frozen/css/frozen.css"/>
+    <link rel="stylesheet" type="text/css" href="../../../portal/lib/bootstrap/bootstrap.css"/>
+    <!--<link rel="stylesheet" type="text/css" href="/static/lib/frozen/css/pub.css"/>-->
+    <link rel="stylesheet" type="text/css" href="../../../portal/res/css/pub.css"/>
+    <link rel="stylesheet" type="text/css" href="../../../portal/res/css/auth_1.css" media="screen and (max-width: 414px)"/>
+    <link rel="stylesheet" type="text/css" href="../../../portal/res/css/auth_2.css" media="screen and (min-width: 414px)"/>
+    <style type="text/css">
+        .auth-header img{
+            display: block;
+            max-width: 100%;
+            width: 100%;
+            height: 48px;
+        }
+        .bottomMsg2{
+            width: 90%;
+            margin: 20px auto 0 auto;
+            text-align: center;
+            display: block;
+            font-size: 12px;
+            padding-top: 15px;
+            border-top:1px dashed gray;
+        }
+        .carousel{
+            opacity: 0;
+        }
+    </style>
+    <script type="text/javascript" src="../../../portal/lib/jquery/jquery.min.js"></script>
+</head>
+<body>
+<div class="auth-container box-vertical">
+    <!--头部logo-->
+    <div class="auth auth-header">
+        <img src=""></div>
+
+    <!--轮播广告-->
+    <div class="auth auth-footer">
+        <div id="auth_ad" class="auth-ad">
+
+            <div id="carousel-example-generic" class="carousel slide" data-ride="carousel" data-interval="3000">
+                <div class="carousel-inner" role="listbox"></div>
+            </div>
+
+        </div>
+    </div>
+
+    <!--主要内容-->
+    <div class="auth auth-content" id="mobile-auth-content" style="display: none">
+        <p class="" id="auth_new_title" style="display:none;text-align: center">请使用您的手机进行免费注册1</p>
+        <p class="" id="auth_old_title" style="display:none;text-align: center">欢迎您使用免费无线WiFi服务</p>
+        <p><input type="hidden" id="mac" value="jfwx:mac"></p>
+        <p><input type="hidden" id="vlan" value="jfwx:vlan"></p>
+        <p><input type="hidden" id="user_ip" value="jfwx:user_ip"></p>
+        <p><input type="hidden" id="tel" value="jfwx:tel"></p>
+        <p><input type="hidden" id="pwd" value="jfwx:pwd"></p>
+        <div id="auth_new" style="display: none;margin-top: 5px">
+            <div class="auth-input">
+                <div class="auth-input-img">
+                    <img src="../../../portal/res/img/mobile/auth_img_mobile.png">
+                </div>
+                <input id="mobile" type="tel" placeholder="请输入手机号" maxlength="11">
+                <div style="width:39%;float: right;">
+                    <button id="getAuth" type="button" onclick="getAuthCode();">获取服务码</button>
+                </div>
+            </div>
+            <div class="auth-input">
+                <div class="auth-input-img">
+                    <img src="../../../portal/res/img/mobile/auth_img_code.png">
+                </div>
+                <input style="width:85%;" id="code" type="tel" placeholder="请输入服务码" maxlength="6">
+            </div>
+        </div>
+        <div id="auth_old" style="display: none">
+            <div class="auth-old-input"></div>
+        </div>
+        <span class="auth-span-error" style="height: 30px"></span>
+        <p class="hide" style="margin-top: 20px">请您通过手机短信接受服务码，短信注册免费</p>
+        <button id="auth" class="auth-btn auth-blue" style="display: none" type="button" onclick="auth(event);"></button>
+        <p class="auth-agree"></p>
+
+        <!--底部信息-->
+        <p class="bottomMsg2" id="bottomMsg2">©商机无限前端 版权所有</p>
+    </div>
+</div>
+<script type="text/javascript" src="../../../portal/lib/bootstrap/bootstrap.js"></script>
+<!--<script type="text/javascript" src="/static/portal/res/plugin/jquery.cookie.min.js"></script>-->
+<!--<script type="text/javascript" src="/static/portal/res/js/tools/scriptTools.js"></script>-->
+<script type="text/javascript" src="../../../portal/res/js/portal/portal.js"></script>
+<script type="text/javascript" src="../../../portal/res/js/mobile/mobileAuth.js"></script>
+<script type="text/javascript">
+    jQuery(document).ready(function(){
+        initFont();
+        initEvent();
+        initData();
+        initAuth(jfwx:isOld);
+    });
+</script>
+</body>
+</html>
