@@ -142,17 +142,19 @@ void hash_table_rm(HashTable* ht, char* key)
 
     struct kv* p = ht->table[i];
     struct kv* prep = p;
+	struct kv* next = NULL;
     while (p) {
         if (strcmp(key, p->key) == 0) {
+			next = p->next;
             free_kv(p);
             if (p == prep) {
                 ht->table[i] = NULL;
             }
             else {
-                prep->next = p->next;
+                prep->next = next;
             }
         }
         prep = p;
-        p = p->next;
+        p = next;
     }
 }

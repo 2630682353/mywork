@@ -99,3 +99,60 @@ void urldecode(char *p)
 	}  
 	*p='\0';  
 } 
+
+char *trim(char *str)
+{
+        char *p = str;
+        char *p1;
+        if(p)
+        {
+                p1 = p + strlen(str) - 1;
+                while(*p && isspace(*p)) p++;
+                while(p1 > p && isspace(*p1)) *p1-- = '\0';
+        }
+        return p;
+}
+/*获取指定字段（name）信息存入result中*/
+int getfile_info(char *filename, char *name,char *result)
+{
+  char linebuffer[100] = {0};
+  char buffer1[100] = {0};
+  char buffer2[100] = {0};
+  char *key = NULL;
+  char *value = NULL;
+  uint8 flag = 0;
+  int buffer_size=0;
+  FILE *fp = fopen(filename, "r");
+  if(fp == NULL)
+  {
+      printf("open error");
+      return 1;
+  }
+  while(1)
+  {
+      char *ret = fgets(linebuffer, 100, fp);
+      if(ret == NULL)
+      {
+        break;
+      }
+      sscanf(linebuffer, "%[^=]=%[^=]", buffer1,buffer2);
+      key = trim(buffer1);
+      value = trim(buffer2);
+      if(!strcmp(name, key))
+      {
+         
+         buffer_size=strlen(value);
+         memcpy(result,value,buffer_size);
+        result[buffer_size]='\0';//remove the \n
+        flag = 1;
+        break;   
+      }
+      memset(buffer1,0,sizeof(buffer1));
+      memset(buffer2,0,sizeof(buffer2));
+      memset(linebuffer,0,sizeof(linebuffer));
+  }
+  fclose(fp);
+  if(flag != 1)
+    return 1;
+  return 0;
+}
