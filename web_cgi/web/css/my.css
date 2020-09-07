@@ -1,0 +1,122 @@
+body{padding: 0px;font-size: 14px;margin: 0px;font-family:Microsoft YaHei, Arial;color:#333;background-color: #fbfbfb;}
+ul,li,span,input,select{margin: 0;padding: 0;}
+.top{width:100%;height: 52px;line-height: 52px;background-color: #9fdcf8;}
+.test{float: left;padding: 0px;border: 0px;width: 273px;height: 1000px;background-color: #9fdcf8;padding-top: 20px; }
+.test div{width: 273px;height: 50px;line-height: 50px;cursor: pointer;
+	border-bottom:1px #88d1f2 solid;}
+.test p{display: block;text-align: left;padding:0px;margin: 0px;padding-left: 80px;}
+#fl1:hover,#fl2:hover,#fl3:hover,#fl4:hover,#fl5:hover{background-color:#fff !important;color:#0091db !important;}
+
+#fl1{background-color:#fff;color:#0091db;}
+ul,li,input{list-style:none;}
+.test ul{padding: 0px;margin: 0px;}
+
+
+.base{margin: 20px auto;width: 1200px;height: 1000px; border: 1px solid #d8eaf3;background-color: #fff;}
+.right{display: none;float: right;width: 890px;height: 500px;}
+#first{display: block;}
+
+.company{line-height: 50px;height:50px;float: left;background-position: 0px -200px;width:600px;font-size: 25px;
+	color: #d6000f;text-align: left;font-weight: bold;}
+.wrap{width: 1200px;margin: 0 auto;}
+#fl1{border-top:1px #88d1f2 solid;}
+.panel{width:830px;margin: 10px 0;overflow:hidden;}
+.bd-box{margin:10px auto;padding-left: 10px; width: 827px;padding: 20px 0;border-radius: 8px;
+		border: 1px #d8eaf3 solid;overflow: hidden;}
+.right h2{font-size: 14px;font-weight: normal;padding:0px;margin: 0px;}
+.newlist .list{width: 550px;margin: 0 auto;}
+.newlist .list li{width: 100%;position: relative;border-radius: 3px;margin: 10px 0;overflow: hidden;}
+.newlist .new-sp{border: 1px #aadffa solid;border-radius: 3px;}
+.list li span{float: left;height: 38px;line-height: 38px;}
+.list li .sp-l{width: 100px;text-align: center;}
+.list li .sp-r{width: 290px;text-align: left;position: relative;}
+.inpt{line-height: 25px;padding: 5px 10px;border: none;outline: none;background: none;width: 260px;}
+.btn{width: 100px;height: 40px;line-height: 40px;display: inline-block;text-align: center;color: #fff;
+	border: 1px #fff solid;border-radius: 4px;background: #66c6f2;cursor: pointer;;vertical-align: middle;}
+.btn:hover{background:#82cdf0;color: #fff;opacity: .8;text-decoration: none;}
+.b-2 {width: 610px;margin: 0 auto 10px auto;}
+.mt10{margin-top: 10px;}
+.nav_tit{float: left;text-align: right;margin-right: 15px;width: 150px;}
+.d-btn{width: 124px;}
+#chaobiao,#chaobiao2{width:180px;}
+.zhezhao{width: 100%;height: 100%; background-color:#000;  background-color: rgba(0,0,0,0.5); 
+    position:fixed; left:0px; top:0px; display:none; z-index:1000;
+  text-align: center;line-height: 100%; font-size: 20px;}
+.set_info{
+    color: #ffffff;
+}
+
+#center_box{position: absolute;top: 50%;left: 50%; font-weight: bold;
+            -webkit-transform: translate(-50%, -50%);
+            -moz-transform: translate(-50%, -50%);
+            -ms-transform: translate(-50%, -50%);
+            -o-transform: translate(-50%, -50%);
+            transform: translate(-50%, -50%);
+        }}
+#waitimg{float:left;}
+.sys_tb td {padding: 5px 0;width: 400px;text-align: center;}
+.tblist .tit{width: 120px;text-align: right;margin-left: 40px;margin-right: 10px;}
+.tblist span{float: left;text-align: left;}
+.blue {
+	color: #54bded;
+}
+.userInpt {
+    border: 1px #65ccf8 solid;height: 38px;line-height: 38px;
+    width: 263px;
+    border-radius: 4px;
+    outline: none;
+    padding: 5px 5px;
+    vertical-align: middle;
+}
+.container{  
+   width:450px;  
+   border:1px solid #6C9C2C;  
+   height:25px;  
+ }
+#bar{  
+   background:#95CA0D;  
+   float:left; 
+   height:100%;  
+   text-align:center;  
+   line-height:150%; 
+ }
+.errinfo{margin-left: 10px;color: red;display: none;}
+.file {
+    position: absolute;
+    left: 0;
+    width: 263px;
+    top: 0;
+    height: 40px;
+    filter: alpha(opacity=0);
+    opacity: 0;
+    cursor: pointer;
+    padding: 5px 0;
+}
+.file1 {
+    float: left;
+    z-index: 1;
+    width: 73px;
+    height: 40px;
+    line-height: 40px;
+    background: #66c6f2;
+    border-radius: 4px;
+    text-align: center;
+    color: #fff;
+    font-size: 16px;
+    cursor: pointer;
+    margin-left: 2px;
+}
+.inputstyle {
+    width: 170px;
+    float: left;
+    height: 23px;
+    line-height: 23px;
+    z-index: 0;
+    padding: 6px;
+    background: none;
+    border: 1px #bfe2ef solid;
+}
+.line {
+    position: relative;
+    overflow: hidden;
+}

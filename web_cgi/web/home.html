@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<link rel="stylesheet" href="css/my.css" type="text/css" />
+<script type="text/javascript" src="js/my.js"></script>
+</head>
+<body>
+
+<div class="top">
+	<div class="wrap">
+	<div class="company">Shenzhen CLOU Electronics CO.,LTD.
+	</div>
+	</div>
+	
+</div>
+<div class="base">
+<div class="test"> <ul>
+<li><div class="left" id="fl1" onclick="show_div('first','fl1')"><p>Network para</p></div></li>
+<li><div class="left" id="fl2" onclick="show_div('second','fl2')"><p>Meter reading info</p></div></li>
+<li><div class="left" id="fl3" onclick="show_div('third', 'fl3')"><p>Measure node para</p></div></li>
+<li><div class="left" id="fl4" onclick="show_div('fourth','fl4')"><p>Terminal management</p></div></li>
+<li><div class="left" id="fl5" onclick="show_div('fifth','fl5')"><p>Terminal upgrade</p></div></li>
+</ul> </div>
+<div class="right" id="first" >
+	<div class="panel"><h2>Master network para</h2>
+		<div class="bd-box newlist">
+		<ul class="list">
+		<li><span class="sp-l">Master IP</span><span class="sp-r new-sp"><input type="text" name="master_ip" id="master_ip" onblur="text_check(this)" class="inpt"></span><span class="errinfo" id="master_ip_err">format error</span></li>
+		<li><span class="sp-l">Port</span><span class="sp-r new-sp"><input type="text" name="up_ip" id="master_port" onblur="text_check(this)" class="inpt"></span><span class="errinfo" id="master_port_err">format error</span></li>
+		<li><span class="sp-l">APN</span><span class="sp-r new-sp"><input type="text" name="up_ip" id="master_apn" class="inpt"></span></li>
+		<li><span class="sp-l">Username</span><span class="sp-r new-sp"><input type="text" name="up_ip" id="user" onblur="text_check(this)" class="inpt"></span><span class="errinfo" id="user_err">format error</span></li>
+		<li><span class="sp-l">Password</span><span class="sp-r new-sp"><input type="text" name="up_ip" id="pwd" onblur="text_check(this)" class="inpt"></span><span class="errinfo" id="pwd_err">format error</span></li>
+		<li><span class="sp-l">Heartbeat cycle</span><span class="sp-r new-sp"><input type="text" name="up_ip" id="heartbeat" onblur="text_check(this)" class="inpt"></span><span class="errinfo" id="heartbeat_err">format error</span></li>
+		<li><span class="sp-l"></span><span><input type="button" class="btn s-btn" onclick="net_query()" name="" value="Query"></span>
+		<span><input type="button" class="btn s-btn" onclick="master_sub()" name="" value="Apply"></span></li>
+		</ul>
+		</div>
+	</div>
+	<div class="panel"><h2>Terminal network para</h2>
+		<div class="bd-box newlist">
+		<ul class="list">
+		<li><span class="sp-l">Terminal IP</span><span class="sp-r new-sp"><input type="text" name="up_ip" id="ter_ip1" onblur="text_check(this)" class="inpt"></span><span class="errinfo" id="ter_ip1_err">format error</span></li>
+		<li><span class="sp-l">Subnet mask</span><span class="sp-r new-sp"><input type="text" name="up_ip" id="ter_mask1" onblur="text_check(this)" class="inpt"></span><span class="errinfo" id="ter_mask1_err">format error</span></li>
+		<li><span class="sp-l">Gateway</span><span class="sp-r new-sp"><input type="text" name="up_ip" id="ter_gateway1" onblur="text_check(this)" class="inpt"></span><span class="errinfo" id="ter_gateway1_err">format error</span></li>
+		<li><span class="sp-l"></span><span><input type="button" class="btn s-btn" onclick="net_query()" name="" value="Query"></span>
+		<span><input type="button" class="btn s-btn" onclick="terminal_sub()" name="" value="Apply"></span></li>
+		</ul>
+		</div>
+	</div>
+</div>
+<div class="right" id="second" >
+<div class="panel"><h2>Meter reading info</h2>
+		<div class="bd-box newlist">
+		<ul class="list">
+		<li><span class="sp-l" id="chaobiao">Load curve cycle(min)</span><span class="sp-r new-sp"><input type="text" name="up_ip" id="cao_interval" onblur="text_check(this)" class="inpt"></span><span class="errinfo" id="cao_interval_err">format error</span></li>
+		<li><span class="sp-l" id="chaobiao2"></span><span><input type="button" class="btn s-btn" onclick="manage_query()" name="" value="Query"></span>
+		<span><input type="button" class="btn s-btn" name="" onclick="manage_sub()" value="Apply"></span></li>
+		</ul>
+		</div>
+</div>
+</div>
+<div class="right" id="third">
+<div class="panel"><h2>Meter node para</h2>
+		<div class="bd-box newlist">
+		<ul class="list">
+		<li><span class="sp-l">Choose measure node</span><span class="sp-r new-sp"><input type="text" id="meter_num" onblur="text_check(this)" class="inpt"></span><span class="errinfo" id="meter_num_err">format error</span></li>
+		<li><span class="sp-l"></span><span><input type="button" class="btn s-btn" name="" onclick="meter_query_sub()" value="Query"></span></li>
+		<li><span class="sp-l">Meter node</span><span class="sp-l" id="static_meter_num"></span><span class="sp-l" id="not_set" style="display: none;color: red">not set</span></li>
+		<li><span class="sp-l">Meter address</span><span class="sp-r new-sp"><input type="text" id="device_number" onblur="text_check(this)" class="inpt"></span><span class="errinfo" id="device_number_err">format error</span></li>
+		<li><span class="sp-l">Commu mode</span><select id="tongxunfangshi" class="userInpt">
+			<option value="0">Invalid</option>
+  			<option value="1">485-1</option>
+  			<option value="2">485-2</option>
+  			<option value="5">PLC</option>
+  			</select></li>
+		<li><span class="sp-l">Baud rate</span><select id="baud_rate" class="userInpt">
+			<option value="0">Default 1200</option>
+  			<option value="1">600</option>
+  			<option value="2">1200</option>
+  			<option value="3">2400</option>
+  			<option value="4">4800</option>
+  			<option value="5">7200</option>
+  			<option value="6">9600</option>
+  			<option value="7">19200</option>
+  			</select></li>
+		<li><span class="sp-l">Commu pro</span><select id="guiyue" class="userInpt">
+			<option value="1">DL/T645-1997</option>
+  			<option value="2">DL/T645-2007</option>
+  			<option value="3">IEC62056</option>
+  			</select></li>
+		<li><span class="sp-l">Wiring mode</span><select id="jiexian" class="userInpt">
+			<option value="0">Single phase</option>
+  			<option value="1">Tri-phase tri-wire</option>
+  			<option value="2">Tri-phase four-wire</option>
+  			</select></li>
+		<li><span class="sp-l"></span><span><input type="button" onclick="meter_sub()" class="btn s-btn" name="" value="Apply"></span></li>
+		</ul>
+		</div>
+	</div>
+
+<div class="panel"><h2>Meter data</h2>
+		<div class="bd-box newlist">
+		<ul class="list">
+		<li><span class="sp-l">Choose measure node</span><span class="sp-r new-sp"><input type="text" id="meterdata_num" onblur="text_check(this)" class="inpt"></span><span class="errinfo" id="meterdata_num_err">format error</span></li>
+		<li><span class="sp-l"></span><span><input type="button" class="btn s-btn" name="" onclick="meterdata_query()" value="Query"></span></li>
+		<li><span class="sp-l">Meter node</span><span class="sp-l" id="static_meterdata_num"></span><span class="sp-l" id="not_set2" style="display: none;color: red">not set</span></li>
+		<li><span class="sp-l">Meter addr</span><span class="sp-l" id="static_meteraddr"></span></li>
+		<li><span class="sp-l">Voltage</span><span class="sp-r new-sp"><input type="text" id="voltage" onblur="text_check(this)" class="inpt"></span><span  id="voltage_err">  V</span></li>
+		<li><span class="sp-l">Current</span><span class="sp-r new-sp"><input type="text" id="current" onblur="text_check(this)" class="inpt"></span><span  id="current_err">  A</span></li>
+
+		</ul>
+		</div>
+	</div>
+
+</div>
+<div class="right" id="fourth">
+<div class="panel"><h2>Terminal info</h2>
+		<div class="bd-box newlist">
+		<ul class="list">
+		<li><span class="sp-l">Time</span><span class="sp-r new-sp"><input type="text" name="up_ip" id="ter_time" onblur="text_check(this)" class="inpt"></span><span class="errinfo" id="ter_time_err">format error</span></li>
+		<li><span class="sp-l"></span><span><input type="button" class="btn s-btn" name="" onclick="time_query()" value="Query"></span>
+		<span><input type="button" class="btn s-btn" name="" onclick="date_sub()" value="Apply"></span></li>
+		</ul>
+		</div>
+	</div>
+<div class="panel"><h2>Management</h2>
+		<div class="bd-box">
+		<div class="b-2"><span class="nav_tit mt10">Terminal reset</span><div><input type="button" name="" class="btn d-btn" onclick="reset()" value="Reset"></div></div>
+		<div class="b-2"><span class="nav_tit mt10">Data reset</span><div><input type="button" name="" class="btn d-btn" onclick="data_reset()" value="Init"></div></div>
+		<div class="b-2"><span class="nav_tit mt10">Factory settings</span><div><input type="button" name="" class="btn d-btn" onclick="all_init()" value="Restore"></div></div>
+		<div class="b-2"><span class="nav_tit mt10">Default settings</span><div><input type="button" name="" class="btn d-btn" onclick="part_init()" value="Implemnet"></div></div>
+		
+		</div>
+	</div>
+</div>
+<div class="right" id="fifth">
+
+<div class="panel"><h2>Upgrade</h2>
+		<div class="bd-box"><div class="b-2"><div>
+		<form action="/cgi-bin/hello.cgi?opt=upload_file&function=get" enctype="multipart/form-data" method="post">
+		<div class="line">
+		<input type="text" id="viewfile" class="inputstyle" name="">
+		<label class="file1">Choose</label>
+		<input type="file" class="file" onchange="document.getElementById('viewfile').value=this.value" name="file1" id="file1">
+		<input type="button" class="btn s-btn" onclick="UpladFile()" name="" value="Submit confirm"></div></form>
+		</div></div>
+		<div class="b-2" id="info_upload" style="display: none"><div><div class="container"> 
+		   		<div id="bar" style="width:0%;"></div>  
+		  	</div><div id="percentageDiv"></div> 
+		  </div></div>
+
+		</div>
+</div>
+<div class="panel"><h2>Version info</h2>
+		<div class="bd-box">
+		<table width="100%" cellpadding="0" cellspacing="0" class="sys_tb">
+			<tbody>
+			<tr><td><div class="tblist">
+					<span class="tit">Device number</span>
+					<span class="blue" id="device_id"></span>
+				</div>
+				</td>
+				<td><div class="tblist">
+					<span class="tit">Software version</span>
+					<span class="blue" id="soft_version"></span>
+				</div>
+				</td>
+			</tr>
+			<tr><td><div class="tblist">
+					<span class="tit">Hardware version</span>
+					<span class="blue" id="hard_version"></span>
+				</div>
+				</td>
+				<td><div class="tblist">
+					<span class="tit">Release date</span>
+					<span class="blue" id="soft_pubdate"></span>
+				</div>
+				</td>
+			</tr>
+			</tbody>
+		</table>
+		</div>
+</div>
+
+
+</div>
+<div class="zhezhao" id="zhezhao"><div id="center_box"><div id="waitimg"><img src="/images/loading-3.gif"></div><p class="set_info" id="set_info">Now applying please wait...</p></div></div>
+
+</body>
+</html>
